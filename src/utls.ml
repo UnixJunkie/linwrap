@@ -87,6 +87,11 @@ let lines_of_file (fn: filename): string list =
       else res
     )
 
+let lines_to_file fn l =
+  with_out_file fn (fun out ->
+      List.iter (fprintf out "%s\n") l
+    )
+
 (* all lines of file [fn], except those starting with [comment_prefix] *)
 let uncommented_lines_of_file
     (comment_prefix: string) (fn: filename): string list =
