@@ -2,4 +2,5 @@
 (executables
   (names        linwrap)
   (public_names linwrap)
-  (libraries batteries cpm dolog minicli parmap))
+  (libraries batteries cpm dolog minicli parmap)
+  (modules linwrap))
