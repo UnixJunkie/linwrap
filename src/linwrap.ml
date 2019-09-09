@@ -33,6 +33,8 @@ let pred_score_of_pred_line l =
 
 module ROC = Cpm.MakeROC.Make(SL)
 
+(* FBR: add -q option *)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -40,6 +42,7 @@ let main () =
   if argc = 1 then
     (eprintf "usage: %s\n  \
               -i <filename>: training set\n  \
+              [-np <int>]: ncores\n  \
               [-c <float>]: fix C\n  \
               [-w <float>]: fix w1\n  \
               [--scan-C]: scan for best C\n  \
@@ -47,6 +50,7 @@ let main () =
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
+  let ncores = CLI.get_int_def ["-np"] args 1 in
   (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   let rng = match CLI.get_int_opt ["--seed"] args with
@@ -88,9 +92,9 @@ let main () =
       | Some w -> [w]
       | None -> [1.0] in
   Utls.lines_to_file train_fn train;
-  L.iter (fun c ->
+  Parmap_wrapper.pariter ~ncores ~csize:1 ~f:(fun c ->
       L.iter (fun w ->
-          Utls.run_command ~debug:true
+          Utls.run_command ~debug:false
             (sprintf "liblinear-train -c %f -w1 %f -s 0 %s 2>&1 > /dev/null"
                c w train_fn);
           (* test *)
