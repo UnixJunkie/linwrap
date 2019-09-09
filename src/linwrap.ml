@@ -39,7 +39,11 @@ let main () =
   let argc, args = CLI.init () in
   if argc = 1 then
     (eprintf "usage: %s\n  \
-              -i <filename>: training set\n"
+              -i <filename>: training set\n  \
+              [-c <float>]: fix C\n  \
+              [-w <float>]: fix w1\n  \
+              [--scan-C]: scan for best C\n  \
+              [--scan-W]: scan weight to counter class imbalance\n"
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
@@ -48,6 +52,10 @@ let main () =
   let rng = match CLI.get_int_opt ["--seed"] args with
     | None -> BatRandom.State.make_self_init ()
     | Some seed -> BatRandom.State.make [|seed|] in
+  let scan_C = CLI.get_set_bool ["--scan-C"] args in
+  let fixed_c = CLI.get_float_opt ["-c"] args in
+  let scan_w = CLI.get_set_bool ["--scan-W"] args in
+  let fixed_w = CLI.get_float_opt ["-w"] args in
   CLI.finalize ();
   let all_lines =
     (* randomize lines *)
@@ -63,28 +71,51 @@ let main () =
     (* liblinear places the model in the current working dir... *)
     BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
+  (* scan C *)
+  let cs = match fixed_c with
+    | Some c -> [c]
+    | None ->
+      if scan_C then
+        [0.001; 0.002; 0.005;
+         0.01; 0.02; 0.05;
+         0.1; 0.2; 0.5;
+         1.; 2.; 5.;
+         10.; 20.; 50.; 100.]
+      else [1.0] in
+  let weights =
+    if scan_w then L.frange 1.0 `To 50.0 50
+    else match fixed_w with
+      | Some w -> [w]
+      | None -> [1.0] in
   Utls.lines_to_file train_fn train;
-  Utls.run_command ~debug:true ("liblinear-train -s 0 " ^ train_fn);
-  (* test *)
-  let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
-  Utls.lines_to_file test_fn test;
-  let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
-  (* compute AUC on test set *)
-  Utls.run_command ~debug:true (sprintf "liblinear-predict -b 1 %s %s %s"
-                                  test_fn model_fn preds_fn);
-  (* extract true labels *)
-  let true_labels = L.map (fun s -> BatString.starts_with s "+1 ") test in
-  (* extact predicted scores *)
-  let pred_lines = Utls.lines_of_file preds_fn in
-  match pred_lines with
-  | header :: preds ->
-    begin
-      assert(header = "labels 1 -1");
-      let pred_scores = L.map pred_score_of_pred_line preds in
-      let score_labels = L.map SL.create (L.combine true_labels pred_scores) in
-      let auc = ROC.auc score_labels in
-      Log.info "tstAUC: %.3f" auc
-    end
-  | _ -> assert(false)
+  L.iter (fun c ->
+      L.iter (fun w ->
+          Utls.run_command ~debug:true
+            (sprintf "liblinear-train -c %f -w1 %f -s 0 %s 2>&1 > /dev/null"
+               c w train_fn);
+          (* test *)
+          let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
+          Utls.lines_to_file test_fn test;
+          let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+          (* compute AUC on test set *)
+          Utls.run_command ~debug:true (sprintf "liblinear-predict -b 1 %s %s %s"
+                                          test_fn model_fn preds_fn);
+          (* extract true labels *)
+          let true_labels = L.map (fun s -> BatString.starts_with s "+1 ") test in
+          (* extact predicted scores *)
+          let pred_lines = Utls.lines_of_file preds_fn in
+          match pred_lines with
+          | header :: preds ->
+            begin
+              assert(header = "labels 1 -1");
+              let pred_scores = L.map pred_score_of_pred_line preds in
+              let score_labels =
+                L.map SL.create (L.combine true_labels pred_scores) in
+              let auc = ROC.auc score_labels in
+              Log.info "c: %.3f w1: %.1f tstAUC: %.3f" c w auc
+            end
+          | _ -> assert(false)
+        ) weights
+    ) cs
 
 let () = main ()
