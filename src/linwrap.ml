@@ -11,6 +11,7 @@
 
 open Printf
 
+module A = BatArray
 module CLI = Minicli.CLI
 module L = BatList
 
@@ -24,6 +25,8 @@ module SL = struct
     l
 end
 
+module ROC = Cpm.MakeROC.Make(SL)
+
 let pred_score_of_pred_line l =
   match BatString.split_on_char ' ' l with
   | [pred_label; pred_score; _ignored] ->
@@ -31,9 +34,15 @@ let pred_score_of_pred_line l =
     float_of_string pred_score
   | _ -> assert(false)
 
-module ROC = Cpm.MakeROC.Make(SL)
-
-(* FBR: add -q option *)
+(* get one bootstrap sample of size 'nb_samples' using
+   sampling with replacement *)
+let array_bootstrap_sample rng nb_samples a =
+  let n = Array.length a in
+  assert(nb_samples <= n);
+  A.init nb_samples (fun _ ->
+      let rand = Random.State.int rng n in
+      a.(rand)
+    )
 
 let main () =
   Log.(set_log_level INFO);
@@ -42,6 +51,7 @@ let main () =
   if argc = 1 then
     (eprintf "usage: %s\n  \
               -i <filename>: training set\n  \
+              [-k <int>]: number of bags for bagging (default=off)\n  \
               [-np <int>]: ncores\n  \
               [-c <float>]: fix C\n  \
               [-w <float>]: fix w1\n  \
@@ -51,6 +61,7 @@ let main () =
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
   let ncores = CLI.get_int_def ["-np"] args 1 in
+  let _maybe_k = CLI.get_int_opt ["-k"] args in
   (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   let rng = match CLI.get_int_opt ["--seed"] args with
@@ -59,8 +70,13 @@ let main () =
   let scan_C = CLI.get_set_bool ["--scan-C"] args in
   let fixed_c = CLI.get_float_opt ["-c"] args in
   let scan_w = CLI.get_set_bool ["--scan-W"] args in
+  let quiet = CLI.get_set_bool ["-q"] args in
   let fixed_w = CLI.get_float_opt ["-w"] args in
   CLI.finalize ();
+  let verbose = not quiet in
+  let quiet_command =
+    if verbose then ""
+    else "2>&1 > /dev/null" in
   let all_lines =
     (* randomize lines *)
     L.shuffle ~state:rng
@@ -94,16 +110,18 @@ let main () =
   Utls.lines_to_file train_fn train;
   Parmap_wrapper.pariter ~ncores ~csize:1 ~f:(fun c ->
       L.iter (fun w ->
-          Utls.run_command ~debug:false
-            (sprintf "liblinear-train -c %f -w1 %f -s 0 %s 2>&1 > /dev/null"
-               c w train_fn);
+          Utls.run_command ~debug:verbose
+            (sprintf "liblinear-train -c %f -w1 %f -s 0 %s %s"
+               c w train_fn quiet_command);
           (* test *)
           let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
           Utls.lines_to_file test_fn test;
           let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
           (* compute AUC on test set *)
-          Utls.run_command ~debug:true (sprintf "liblinear-predict -b 1 %s %s %s"
-                                          test_fn model_fn preds_fn);
+          Utls.run_command ~debug:verbose
+            (* '-b 1' forces probabilist predictions instead of raw scores *)
+            (sprintf "liblinear-predict -b 1 %s %s %s %s"
+               test_fn model_fn preds_fn quiet_command);
           (* extract true labels *)
           let true_labels = L.map (fun s -> BatString.starts_with s "+1 ") test in
           (* extact predicted scores *)
