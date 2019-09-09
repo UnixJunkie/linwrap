@@ -16,3 +16,15 @@ let parmap ~ncores ~csize ~f l =
     (* parallel work *)
     Parany.run ~verbose:false ~csize ~nprocs:ncores ~demux ~work:f ~mux;
     !output
+
+let pariter ~ncores ~csize ~f l =
+  if ncores <= 1 then BatList.iter f l
+  else
+    let input = ref l in
+    let demux () = match !input with
+      | [] -> raise Parany.End_of_input
+      | x :: xs -> (input := xs; x) in
+    (* for safety *)
+    Parany.set_copy_on_work ();
+    (* parallel work *)
+    Parany.run ~verbose:false ~csize ~nprocs:ncores ~demux ~work:f ~mux:ignore
