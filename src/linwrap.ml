@@ -56,7 +56,7 @@ let balanced_bag rng lines =
   A.shuffle ~state:rng tmp_a; (* randomize selected lines order *)
   A.to_list tmp_a
 
-let train_test verbose c w train test =
+let single_train_test verbose c w train test =
   let quiet_command =
     if verbose then ""
     else "2>&1 > /dev/null" in
@@ -106,6 +106,16 @@ let average_scores k sls =
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
 
+let train_test verbose rng c w k train test =
+  if k <= 1 then single_train_test verbose c w train test
+  else (* k > 1 *)
+    let bags = L.init k (fun _ -> balanced_bag rng train) in
+    let k_score_labels =
+      L.map (fun bag ->
+          single_train_test verbose c w bag test
+        ) bags in
+    average_scores k k_score_labels
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -113,25 +123,27 @@ let main () =
   if argc = 1 then
     (eprintf "usage: %s\n  \
               -i <filename>: training set\n  \
-              [-k <int>]: number of bags for bagging (default=off)\n  \
               [-np <int>]: ncores\n  \
               [-c <float>]: fix C\n  \
               [-w <float>]: fix w1\n  \
-              [--scan-C]: scan for best C\n  \
-              [--scan-W]: scan weight to counter class imbalance\n"
+              [-k <int>]: number of bags for bagging (default=off)\n  \
+              [--scan-c]: scan for best C\n  \
+              [--scan-w]: scan weight to counter class imbalance\n  \
+              [--scan-k]: scan number of bags\n"
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
-  let ncores = CLI.get_int_def ["-np"] args 1 in
-  let k = CLI.get_int_def ["-k"] args 1 in
+  let _ncores = CLI.get_int_def ["-np"] args 1 in
   (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   let rng = match CLI.get_int_opt ["--seed"] args with
     | None -> BatRandom.State.make_self_init ()
     | Some seed -> BatRandom.State.make [|seed|] in
-  let scan_C = CLI.get_set_bool ["--scan-C"] args in
+  let scan_C = CLI.get_set_bool ["--scan-c"] args in
   let fixed_c = CLI.get_float_opt ["-c"] args in
-  let scan_w = CLI.get_set_bool ["--scan-W"] args in
+  let scan_w = CLI.get_set_bool ["--scan-w"] args in
+  let k = CLI.get_int_def ["-k"] args 1 in
+  let scan_k = CLI.get_set_bool ["--scan-k"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
   let fixed_w = CLI.get_float_opt ["-w"] args in
   CLI.finalize ();
@@ -149,31 +161,26 @@ let main () =
     | Some c -> [c]
     | None ->
       if scan_C then
-        [0.001; 0.002; 0.005;
-         0.01; 0.02; 0.05;
+        [0.01; 0.02; 0.05;
          0.1; 0.2; 0.5;
          1.; 2.; 5.;
-         10.; 20.; 50.; 100.]
+         10.; 20.; 50.]
       else [1.0] in
   let weights =
-    if scan_w then L.frange 1.0 `To 50.0 50
+    if scan_w then L.frange 1.0 `To 10.0 10
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
+  let ks =
+    if scan_k then [1; 2; 5; 10; 20; 50]
+    else [k] in
   L.iter (fun c ->
       L.iter (fun w ->
-          let score_labels =
-            if k <= 1 then
-              train_test verbose c w train test
-            else (* k > 1 *)
-              let bags = L.init k (fun _ -> balanced_bag rng train) in
-              let k_score_labels =
-                Parmap_wrapper.parmap ~ncores ~csize:1 (fun bag ->
-                    train_test verbose c w bag test
-                  ) bags in
-              average_scores k k_score_labels in
-          let auc = ROC.auc score_labels in
-          Log.info "k: %d c: %.3f w1: %.1f tstAUC: %.3f" k c w auc
+          L.iter (fun k ->
+              let score_labels = train_test verbose rng c w k train test in
+              let auc = ROC.auc score_labels in
+              Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c w k auc
+            ) ks
         ) weights
     ) cs
 
