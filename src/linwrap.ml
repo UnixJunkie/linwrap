@@ -106,12 +106,12 @@ let average_scores k sls =
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
 
-let train_test verbose rng c w k train test =
+let train_test ncores verbose rng c w k train test =
   if k <= 1 then single_train_test verbose c w train test
   else (* k > 1 *)
     let bags = L.init k (fun _ -> balanced_bag rng train) in
     let k_score_labels =
-      L.map (fun bag ->
+      Parmap_wrapper.parmap ~ncores ~csize:1 (fun bag ->
           single_train_test verbose c w bag test
         ) bags in
     average_scores k k_score_labels
@@ -143,11 +143,11 @@ let cv_folds n l =
       loop acc' prev' xs in
   loop [] [] test_sets
 
-let nfolds_train_test verbose rng c w k n dataset =
+let nfolds_train_test ncores verbose rng c w k n dataset =
   assert(n > 1);
   L.flatten
     (L.map (fun (train, test) ->
-         train_test verbose rng c w k train test
+         train_test ncores verbose rng c w k train test
        ) (cv_folds n dataset))
 
 let main () =
@@ -211,25 +211,20 @@ let main () =
     if scan_k then [1; 2; 5; 10; 20; 50]
     else [k] in
   let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
-  let _best_params_auc =
-    Parmap_wrapper.parfold ~ncores ~csize:1
-      (fun ((c', w'), k') ->
-         let score_labels =
-           if nfolds <= 1 then
-             train_test verbose rng c' w' k' train test
-           else (* nfolds > 1 *)
-             nfolds_train_test verbose rng c' w' k' nfolds
-               (L.rev_append train test) in
-         let auc = ROC.auc score_labels in
-         (c', w', k', auc))
-      (fun (c, w, k, auc) (c', w', k', auc') ->
-         if auc' > auc then
-           (Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc';
-            (c', w', k', auc'))
-         else
-           (Log.warn "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc;
-            (c, w, k, auc))
-      ) (1.0, 1.0, 1, 0.5) cwks in
-  ()
+  let best_auc = ref 0.5 in
+  L.iter (fun ((c', w'), k') ->
+      let score_labels =
+        if nfolds <= 1 then
+          train_test ncores verbose rng c' w' k' train test
+        else (* nfolds > 1 *)
+          nfolds_train_test ncores verbose rng c' w' k' nfolds
+            (L.rev_append train test) in
+      let auc = ROC.auc score_labels in
+      if auc > !best_auc then
+        (Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc;
+         best_auc := auc)
+      else
+        Log.warn "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc
+    ) cwks
 
 let () = main ()
