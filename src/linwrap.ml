@@ -55,6 +55,42 @@ let balanced_bag rng lines =
   let tmp_a = A.concat [acts_a; decs_a] in
   A.shuffle ~state:rng tmp_a (* randomize selected lines order *)
 
+let train_test verbose quiet_command c w train test =
+  (* train *)
+  let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
+  Utls.lines_to_file train_fn train;
+  let replaced, model_fn =
+    (* liblinear places the model in the current working dir... *)
+    BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
+  assert(replaced);
+  Utls.run_command ~debug:verbose
+    (sprintf "liblinear-train -c %f -w1 %f -s 0 %s %s"
+       c w train_fn quiet_command);
+  (* test *)
+  let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
+  Utls.lines_to_file test_fn test;
+  let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+  (* compute AUC on test set *)
+  Utls.run_command ~debug:verbose
+    (* '-b 1' forces probabilist predictions instead of raw scores *)
+    (sprintf "liblinear-predict -b 1 %s %s %s %s"
+       test_fn model_fn preds_fn quiet_command);
+  (* extract true labels *)
+  let true_labels = L.map is_active test in
+  (* extact predicted scores *)
+  let pred_lines = Utls.lines_of_file preds_fn in
+  match pred_lines with
+  | header :: preds ->
+    begin
+      assert(header = "labels 1 -1");
+      let pred_scores = L.map pred_score_of_pred_line preds in
+      let score_labels =
+        L.map SL.create (L.combine true_labels pred_scores) in
+      let auc = ROC.auc score_labels in
+      Log.info "c: %.3f w1: %.1f tstAUC: %.3f" c w auc
+    end
+  | _ -> assert(false)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -96,12 +132,6 @@ let main () =
   (* partition *)
   let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
   let train, test = L.takedrop train_card all_lines in
-  (* train *)
-  let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
-  let replaced, model_fn =
-    (* liblinear places the model in the current working dir... *)
-    BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
-  assert(replaced);
   (* scan C *)
   let cs = match fixed_c with
     | Some c -> [c]
@@ -118,36 +148,9 @@ let main () =
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
-  Utls.lines_to_file train_fn train;
   Parmap_wrapper.pariter ~ncores ~csize:1 ~f:(fun c ->
       L.iter (fun w ->
-          Utls.run_command ~debug:verbose
-            (sprintf "liblinear-train -c %f -w1 %f -s 0 %s %s"
-               c w train_fn quiet_command);
-          (* test *)
-          let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
-          Utls.lines_to_file test_fn test;
-          let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
-          (* compute AUC on test set *)
-          Utls.run_command ~debug:verbose
-            (* '-b 1' forces probabilist predictions instead of raw scores *)
-            (sprintf "liblinear-predict -b 1 %s %s %s %s"
-               test_fn model_fn preds_fn quiet_command);
-          (* extract true labels *)
-          let true_labels = L.map is_active test in
-          (* extact predicted scores *)
-          let pred_lines = Utls.lines_of_file preds_fn in
-          match pred_lines with
-          | header :: preds ->
-            begin
-              assert(header = "labels 1 -1");
-              let pred_scores = L.map pred_score_of_pred_line preds in
-              let score_labels =
-                L.map SL.create (L.combine true_labels pred_scores) in
-              let auc = ROC.auc score_labels in
-              Log.info "c: %.3f w1: %.1f tstAUC: %.3f" c w auc
-            end
-          | _ -> assert(false)
+          train_test verbose quiet_command c w train test
         ) weights
     ) cs
 
