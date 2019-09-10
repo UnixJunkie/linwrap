@@ -120,7 +120,7 @@ let train_test verbose rng c w k train test =
 let list_nparts n l =
   let len = L.length l in
   assert(n <= len);
-  let m = BatFloat.round_to_int ((float len) /. (float n)) in
+  let m = int_of_float (BatFloat.ceil ((float len) /. (float n))) in
   let rec loop acc = function
     | [] -> L.rev acc
     | lst ->
@@ -131,6 +131,7 @@ let list_nparts n l =
 (* create folds of cross validation; each fold consists in (train, test) *)
 let cv_folds n l =
   let test_sets = list_nparts n l in
+  assert(n = L.length test_sets);
   let rec loop acc prev curr =
     match curr with
     | [] -> acc
@@ -144,11 +145,10 @@ let cv_folds n l =
 
 let nfolds_train_test verbose rng c w k n dataset =
   assert(n > 1);
-  let train_tests = cv_folds n dataset in
   L.flatten
     (L.map (fun (train, test) ->
          train_test verbose rng c w k train test
-       ) train_tests)
+       ) (cv_folds n dataset))
 
 let main () =
   Log.(set_log_level INFO);
@@ -161,6 +161,7 @@ let main () =
               [-c <float>]: fix C\n  \
               [-w <float>]: fix w1\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
+              [-n <int>]: folds of cross validation\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--scan-k]: scan number of bags\n"
@@ -170,6 +171,7 @@ let main () =
   let ncores = CLI.get_int_def ["-np"] args 1 in
   (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
+  let nfolds = CLI.get_int_def ["-n"] args 1 in
   let rng = match CLI.get_int_opt ["--seed"] args with
     | None -> BatRandom.State.make_self_init ()
     | Some seed -> BatRandom.State.make [|seed|] in
@@ -212,7 +214,12 @@ let main () =
   let _best_params_auc =
     Parmap_wrapper.parfold ~ncores ~csize:1
       (fun ((c', w'), k') ->
-         let score_labels = train_test verbose rng c' w' k' train test in
+         let score_labels =
+           if nfolds <= 1 then
+             train_test verbose rng c' w' k' train test
+           else (* nfolds > 1 *)
+             nfolds_train_test verbose rng c' w' k' nfolds
+               (L.rev_append train test) in
          let auc = ROC.auc score_labels in
          (c', w', k', auc))
       (fun (c, w, k, auc) (c', w', k', auc') ->
@@ -224,7 +231,5 @@ let main () =
             (c, w, k, auc))
       ) (1.0, 1.0, 1, 0.5) cwks in
   ()
-
-(* FBR: implement --NxCV *)
 
 let () = main ()
