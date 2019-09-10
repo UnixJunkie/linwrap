@@ -133,7 +133,7 @@ let main () =
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
-  let _ncores = CLI.get_int_def ["-np"] args 1 in
+  let ncores = CLI.get_int_def ["-np"] args 1 in
   (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   let rng = match CLI.get_int_opt ["--seed"] args with
@@ -166,7 +166,7 @@ let main () =
          1.; 2.; 5.;
          10.; 20.; 50.]
       else [1.0] in
-  let weights =
+  let ws =
     if scan_w then L.frange 1.0 `To 10.0 10
     else match fixed_w with
       | Some w -> [w]
@@ -174,14 +174,23 @@ let main () =
   let ks =
     if scan_k then [1; 2; 5; 10; 20; 50]
     else [k] in
-  L.iter (fun c ->
-      L.iter (fun w ->
-          L.iter (fun k ->
-              let score_labels = train_test verbose rng c w k train test in
-              let auc = ROC.auc score_labels in
-              Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c w k auc
-            ) ks
-        ) weights
-    ) cs
+  let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
+  let _best_params_auc =
+    Parmap_wrapper.parfold ~ncores ~csize:1
+      (fun ((c', w'), k') ->
+         let score_labels = train_test verbose rng c' w' k' train test in
+         let auc = ROC.auc score_labels in
+         (c', w', k', auc))
+      (fun (c, w, k, auc) (c', w', k', auc') ->
+         if auc' > auc then
+           (Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc';
+            (c', w', k', auc'))
+         else
+           (Log.warn "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc;
+            (c, w, k, auc))
+      ) (1.0, 1.0, 1, 0.5) cwks in
+  ()
+
+(* FBR: implement --NxCV *)
 
 let () = main ()
