@@ -44,6 +44,17 @@ let array_bootstrap_sample rng nb_samples a =
       a.(rand)
     )
 
+let is_active s =
+  BatString.starts_with s "+1 "
+
+let balanced_bag rng lines =
+  let acts, decs = L.partition is_active lines in
+  let n_acts = L.length acts in
+  let acts_a = array_bootstrap_sample rng n_acts (A.of_list acts) in
+  let decs_a = array_bootstrap_sample rng n_acts (A.of_list decs) in
+  let tmp_a = A.concat [acts_a; decs_a] in
+  A.shuffle ~state:rng tmp_a (* randomize selected lines order *)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -123,7 +134,7 @@ let main () =
             (sprintf "liblinear-predict -b 1 %s %s %s %s"
                test_fn model_fn preds_fn quiet_command);
           (* extract true labels *)
-          let true_labels = L.map (fun s -> BatString.starts_with s "+1 ") test in
+          let true_labels = L.map is_active test in
           (* extact predicted scores *)
           let pred_lines = Utls.lines_of_file preds_fn in
           match pred_lines with
