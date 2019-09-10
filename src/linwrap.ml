@@ -106,6 +106,19 @@ let average_scores k sls =
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
 
+let prod_predict ncores verbose model_fns test_fn =
+  let quiet_command =
+    if verbose then ""
+    else "2>&1 > /dev/null" in
+  Parmap_wrapper.pariter ~ncores ~csize:1 (fun model_fn ->
+      let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+      Log.info "preds_fn: %s" preds_fn;
+      Utls.run_command ~debug:verbose
+        (* '-b 1' forces probabilist predictions instead of raw scores *)
+        (sprintf "liblinear-predict -b 1 %s %s %s %s"
+           test_fn model_fn preds_fn quiet_command);
+    ) model_fns
+
 let train_test ncores verbose rng c w k train test =
   if k <= 1 then single_train_test verbose c w train test
   else (* k > 1 *)
@@ -156,20 +169,21 @@ let main () =
   let argc, args = CLI.init () in
   if argc = 1 then
     (eprintf "usage: %s\n  \
-              -i <filename>: training set\n  \
+              -i <filename>: training set or DB to screen\n  \
               [-np <int>]: ncores\n  \
               [-c <float>]: fix C\n  \
               [-w <float>]: fix w1\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
               [-n <int>]: folds of cross validation\n  \
+              [--models <filename>]: prod. mode; use trained models\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--scan-k]: scan number of bags\n"
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
+  let maybe_models_fn = CLI.get_string_opt ["--models"] args in
   let ncores = CLI.get_int_def ["-np"] args 1 in
-  (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   let nfolds = CLI.get_int_def ["-n"] args 1 in
   let rng = match CLI.get_int_opt ["--seed"] args with
@@ -184,47 +198,54 @@ let main () =
   let fixed_w = CLI.get_float_opt ["-w"] args in
   CLI.finalize ();
   let verbose = not quiet in
-  let all_lines =
-    (* randomize lines *)
-    L.shuffle ~state:rng
-      (Utls.lines_of_file input_fn) in
-  let nb_lines = L.length all_lines in
-  (* partition *)
-  let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
-  let train, test = L.takedrop train_card all_lines in
-  (* scan C *)
-  let cs = match fixed_c with
-    | Some c -> [c]
-    | None ->
-      if scan_C then
-        [0.01; 0.02; 0.05;
-         0.1; 0.2; 0.5;
-         1.; 2.; 5.;
-         10.; 20.; 50.]
-      else [1.0] in
-  let ws =
-    if scan_w then L.frange 1.0 `To 10.0 10
-    else match fixed_w with
-      | Some w -> [w]
-      | None -> [1.0] in
-  let ks =
-    if scan_k then [1; 2; 5; 10; 20; 50]
-    else [k] in
-  let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
-  let best_auc = ref 0.5 in
-  L.iter (fun ((c', w'), k') ->
-      let score_labels =
-        if nfolds <= 1 then
-          train_test ncores verbose rng c' w' k' train test
-        else (* nfolds > 1 *)
-          nfolds_train_test ncores verbose rng c' w' k' nfolds
-            (L.rev_append train test) in
-      let auc = ROC.auc score_labels in
-      if auc > !best_auc then
-        (Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc;
-         best_auc := auc)
-      else
-        Log.warn "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc
-    ) cwks
+  match maybe_models_fn with
+  | Some models_fn ->
+    let model_fns = Utls.lines_of_file models_fn in
+    prod_predict ncores verbose model_fns input_fn
+  | _ ->
+    begin
+      let all_lines =
+        (* randomize lines *)
+        L.shuffle ~state:rng
+          (Utls.lines_of_file input_fn) in
+      let nb_lines = L.length all_lines in
+      (* partition *)
+      let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
+      let train, test = L.takedrop train_card all_lines in
+      (* scan C *)
+      let cs = match fixed_c with
+        | Some c -> [c]
+        | None ->
+          if scan_C then
+            [0.01; 0.02; 0.05;
+             0.1; 0.2; 0.5;
+             1.; 2.; 5.;
+             10.; 20.; 50.]
+          else [1.0] in
+      let ws =
+        if scan_w then L.frange 1.0 `To 10.0 10
+        else match fixed_w with
+          | Some w -> [w]
+          | None -> [1.0] in
+      let ks =
+        if scan_k then [1; 2; 5; 10; 20; 50]
+        else [k] in
+      let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
+      let best_auc = ref 0.5 in
+      L.iter (fun ((c', w'), k') ->
+          let score_labels =
+            if nfolds <= 1 then
+              train_test ncores verbose rng c' w' k' train test
+            else (* nfolds > 1 *)
+              nfolds_train_test ncores verbose rng c' w' k' nfolds
+                (L.rev_append train test) in
+          let auc = ROC.auc score_labels in
+          if auc > !best_auc then
+            (Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc;
+             best_auc := auc)
+          else
+            Log.warn "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc
+        ) cwks
+    end
 
 let () = main ()
