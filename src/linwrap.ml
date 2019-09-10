@@ -53,9 +53,13 @@ let balanced_bag rng lines =
   let acts_a = array_bootstrap_sample rng n_acts (A.of_list acts) in
   let decs_a = array_bootstrap_sample rng n_acts (A.of_list decs) in
   let tmp_a = A.concat [acts_a; decs_a] in
-  A.shuffle ~state:rng tmp_a (* randomize selected lines order *)
+  A.shuffle ~state:rng tmp_a; (* randomize selected lines order *)
+  A.to_list tmp_a
 
-let train_test verbose quiet_command c w train test =
+let train_test verbose c w train test =
+  let quiet_command =
+    if verbose then ""
+    else "2>&1 > /dev/null" in
   (* train *)
   let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
   Utls.lines_to_file train_fn train;
@@ -84,12 +88,23 @@ let train_test verbose quiet_command c w train test =
     begin
       assert(header = "labels 1 -1");
       let pred_scores = L.map pred_score_of_pred_line preds in
-      let score_labels =
-        L.map SL.create (L.combine true_labels pred_scores) in
-      let auc = ROC.auc score_labels in
-      Log.info "c: %.3f w1: %.1f tstAUC: %.3f" c w auc
+      L.map SL.create (L.combine true_labels pred_scores)
     end
   | _ -> assert(false)
+
+let accumulate_scores x y = match (x, y) with
+  | ([], sl2) -> sl2
+  | (sl1, []) -> sl1
+  | (sl1, sl2) ->
+    L.map2 (fun (l1, s1) (l2, s2) ->
+        assert(l1 = l2);
+        (l1, s1 +. s2)
+      ) sl1 sl2
+
+let average_scores k sls =
+  assert(L.length sls = k);
+  let sum = L.fold_left accumulate_scores [] sls in
+  L.map (fun (l, s) -> (l, s /. (float k))) sum
 
 let main () =
   Log.(set_log_level INFO);
@@ -108,7 +123,7 @@ let main () =
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
   let ncores = CLI.get_int_def ["-np"] args 1 in
-  let _maybe_k = CLI.get_int_opt ["-k"] args in
+  let k = CLI.get_int_def ["-k"] args 1 in
   (* let _output_fn = CLI.get_string ["-o"] args in *)
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   let rng = match CLI.get_int_opt ["--seed"] args with
@@ -121,9 +136,6 @@ let main () =
   let fixed_w = CLI.get_float_opt ["-w"] args in
   CLI.finalize ();
   let verbose = not quiet in
-  let quiet_command =
-    if verbose then ""
-    else "2>&1 > /dev/null" in
   let all_lines =
     (* randomize lines *)
     L.shuffle ~state:rng
@@ -148,9 +160,20 @@ let main () =
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
-  Parmap_wrapper.pariter ~ncores ~csize:1 ~f:(fun c ->
+  L.iter (fun c ->
       L.iter (fun w ->
-          train_test verbose quiet_command c w train test
+          let score_labels =
+            if k <= 1 then
+              train_test verbose c w train test
+            else (* k > 1 *)
+              let bags = L.init k (fun _ -> balanced_bag rng train) in
+              let k_score_labels =
+                Parmap_wrapper.parmap ~ncores ~csize:1 (fun bag ->
+                    train_test verbose c w bag test
+                  ) bags in
+              average_scores k k_score_labels in
+          let auc = ROC.auc score_labels in
+          Log.info "k: %d c: %.3f w1: %.1f tstAUC: %.3f" k c w auc
         ) weights
     ) cs
 
