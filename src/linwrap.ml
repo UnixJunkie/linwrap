@@ -116,6 +116,40 @@ let train_test verbose rng c w k train test =
         ) bags in
     average_scores k k_score_labels
 
+(* split a list into n parts (the last one might have less elements) *)
+let list_nparts n l =
+  let len = L.length l in
+  assert(n <= len);
+  let m = BatFloat.round_to_int ((float len) /. (float n)) in
+  let rec loop acc = function
+    | [] -> L.rev acc
+    | lst ->
+      let head, tail = L.takedrop m lst in
+      loop (head :: acc) tail in
+  loop [] l
+
+(* create folds of cross validation; each fold consists in (train, test) *)
+let cv_folds n l =
+  let test_sets = list_nparts n l in
+  let rec loop acc prev curr =
+    match curr with
+    | [] -> acc
+    | x :: xs ->
+      let before_after = L.flatten (L.rev_append prev xs) in
+      let prev' = x :: prev in
+      let train_test = (before_after, x) in
+      let acc' = train_test :: acc in
+      loop acc' prev' xs in
+  loop [] [] test_sets
+
+let nfolds_train_test verbose rng c w k n dataset =
+  assert(n > 1);
+  let train_tests = cv_folds n dataset in
+  L.flatten
+    (L.map (fun (train, test) ->
+         train_test verbose rng c w k train test
+       ) train_tests)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
