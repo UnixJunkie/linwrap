@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+# Copyright (C) 2019, Francois Berenger
+#
+# Yamanishi laboratory,
+# Department of Bioscience and Bioinformatics,
+# Faculty of Computer Science and Systems Engineering,
+# Kyushu Institute of Technology,
+# 680-4 Kawazu, Iizuka, Fukuoka, 820-8502, Japan.
+
 # 16384 bits ECFP6 encoder: a good fingerprint according to
 # O’Boyle, N. M., & Sayle, R. A. (2016).
 # "Comparing structural fingerprints using a literature-based
@@ -30,12 +38,13 @@ if __name__ == '__main__':
     for mol, name in RobustSmilesMolSupplier(input):
         if mol:
             ok_count += 1
-            fp = AllChem.GetMorganFingerprintAsBitVect(mol, 3, nBits=16384).ToBitString()
-            print("%s,0.0,%s" % (name, fp))
+            fp = AllChem.GetMorganFingerprintAsBitVect(mol, 3, nBits=16384)
+            # this format can be read by molenc's pubchem_decoder
+            print("%s,0.0,%s" % (name, fp.ToBitString()))
         else:
             ko_count += 1
     after = time.time()
     dt = after - before
     total = ok_count + ko_count
-    print("%d molecules (%d errors) at %.2f mol/s" % (total, ko_count, total / dt),
-          file=sys.stderr)
+    print("%d molecules (%d errors) at %.2f mol/s" %
+          (total, ko_count, total / dt), file=sys.stderr)
