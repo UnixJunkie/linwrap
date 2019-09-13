@@ -30,8 +30,8 @@ if __name__ == '__main__':
     for mol, name in RobustSmilesMolSupplier(input):
         if mol:
             ok_count += 1
-            fp = AllChem.GetMorganFingerprintAsBitVect(m, 3, nBits=16384)
-            print("%s\t%s" % (fp, name))
+            fp = AllChem.GetMorganFingerprintAsBitVect(mol, 3, nBits=16384).ToBitString()
+            print("%s,0.0,%s" % (name, fp))
         else:
             ko_count += 1
     after = time.time()
