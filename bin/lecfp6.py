@@ -38,6 +38,10 @@ if __name__ == '__main__':
     for mol, name in RobustSmilesMolSupplier(input):
         if mol:
             ok_count += 1
+            if (ok_count % 1000) == 0:
+                # user feedback
+                print("done: %d" % ok_count, end='\r',
+                      file=sys.stderr, flush=True)
             fp = AllChem.GetMorganFingerprintAsBitVect(mol, 3, nBits=16384)
             # this format can be read by molenc's pubchem_decoder
             print("%s,0.0,%s" % (name, fp.ToBitString()))
