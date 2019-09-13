@@ -175,6 +175,8 @@ let main () =
               [-w <float>]: fix w1\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
               [-n <int>]: folds of cross validation\n  \
+              [--seed <int>]: fix random seed\n  \
+              [-p <float>]: training set portion (in [0.0:1.0])\n  \
               [--models <filename>]: prod. mode; use trained models\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
@@ -185,6 +187,7 @@ let main () =
   let maybe_models_fn = CLI.get_string_opt ["--models"] args in
   let ncores = CLI.get_int_def ["-np"] args 1 in
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
+  assert(train_p >= 0.0 && train_p <= 1.0);
   let nfolds = CLI.get_int_def ["-n"] args 1 in
   let rng = match CLI.get_int_opt ["--seed"] args with
     | None -> BatRandom.State.make_self_init ()
