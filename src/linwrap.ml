@@ -14,6 +14,7 @@ open Printf
 module A = BatArray
 module CLI = Minicli.CLI
 module L = BatList
+module Log = Dolog.Log
 
 module SL = struct
   type t = bool * float (* (label, pred_score) *)
@@ -49,9 +50,12 @@ let is_active s =
 
 let balanced_bag rng lines =
   let acts, decs = L.partition is_active lines in
-  let n_acts = L.length acts in
-  let acts_a = array_bootstrap_sample rng n_acts (A.of_list acts) in
-  let decs_a = array_bootstrap_sample rng n_acts (A.of_list decs) in
+  let n =
+    let n_acts = L.length acts in
+    let n_decs = L.length decs in
+    min n_acts n_decs in
+  let acts_a = array_bootstrap_sample rng n (A.of_list acts) in
+  let decs_a = array_bootstrap_sample rng n (A.of_list decs) in
   let tmp_a = A.concat [acts_a; decs_a] in
   A.shuffle ~state:rng tmp_a; (* randomize selected lines order *)
   A.to_list tmp_a
