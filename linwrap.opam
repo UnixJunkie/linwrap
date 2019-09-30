@@ -10,7 +10,7 @@ depends: [
   "base-unix"
   "batteries"
   "cpm"
-  "dolog"
+  "dolog" {>= "4.0.0"}
   "dune"
   "minicli"
   "parany"
