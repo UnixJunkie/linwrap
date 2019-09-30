@@ -238,21 +238,30 @@ let main () =
         if scan_k then [1; 2; 5; 10; 20; 50]
         else [k] in
       let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
-      let best_auc = ref 0.5 in
-      Parmap_wrapper.pariter ~ncores (fun ((c', w'), k') ->
-          let score_labels =
-            if nfolds <= 1 then
-              train_test 1 verbose rng c' w' k' train test
-            else (* nfolds > 1 *)
-              nfolds_train_test 1 verbose rng c' w' k' nfolds
-                (L.rev_append train test) in
-          let auc = ROC.auc score_labels in
-          if auc > !best_auc then
-            (Log.info "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc;
-             best_auc := auc)
-          else
-            Log.warn "c: %.3f w1: %.1f k: %d AUC: %.3f" c' w' k' auc
-        ) cwks
+      let _best_auc =
+        Parmap_wrapper.parfold ~ncores
+          (fun ((c', w'), k') ->
+             let score_labels =
+               if nfolds <= 1 then
+                 train_test 1 verbose rng c' w' k' train test
+               else (* nfolds > 1 *)
+                 nfolds_train_test 1 verbose rng c' w' k' nfolds
+                   (L.rev_append train test) in
+             let auc = ROC.auc score_labels in
+             (c', w', k', auc))
+          (fun best_auc (c', w', k', auc) ->
+             if auc > best_auc then
+               let () =
+                 Log.info "c: %.2f w1: %.1f k: %d AUC: %.3f"
+                   c' w' k' auc in
+               auc
+             else
+               let () =
+                 Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f"
+                   c' w' k' auc in
+               best_auc
+          ) 0.5 cwks in
+      ()
     end
 
 let () = main ()
