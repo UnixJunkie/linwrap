@@ -12,6 +12,7 @@
 open Printf
 
 module L = BatList
+module Log = Dolog.Log
 
 type filename = string
 
