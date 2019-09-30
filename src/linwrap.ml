@@ -114,7 +114,7 @@ let prod_predict ncores verbose model_fns test_fn =
   let quiet_command =
     if verbose then ""
     else "2>&1 > /dev/null" in
-  Parmap_wrapper.pariter ~ncores ~csize:1 (fun model_fn ->
+  Parmap_wrapper.pariter ~ncores (fun model_fn ->
       let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
       Log.info "preds_fn: %s" preds_fn;
       Utls.run_command ~debug:verbose
@@ -128,7 +128,7 @@ let train_test ncores verbose rng c w k train test =
   else (* k > 1 *)
     let bags = L.init k (fun _ -> balanced_bag rng train) in
     let k_score_labels =
-      Parmap_wrapper.parmap ~ncores ~csize:1 (fun bag ->
+      Parmap_wrapper.parmap ~ncores (fun bag ->
           single_train_test verbose c w bag test
         ) bags in
     average_scores k k_score_labels
@@ -239,7 +239,7 @@ let main () =
         else [k] in
       let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
       let best_auc = ref 0.5 in
-      Parmap_wrapper.pariter ~ncores ~csize:1 (fun ((c', w'), k') ->
+      Parmap_wrapper.pariter ~ncores (fun ((c', w'), k') ->
           let score_labels =
             if nfolds <= 1 then
               train_test 1 verbose rng c' w' k' train test
