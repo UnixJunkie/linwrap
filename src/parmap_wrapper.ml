@@ -1,7 +1,7 @@
 
 (* parmap-like wrapper using parany *)
 
-let parmap ~ncores ~csize f l =
+let parmap ~ncores ?(csize = 1) f l =
   if ncores <= 1 then BatList.map f l
   else
     let input = ref l in
@@ -18,7 +18,7 @@ let parmap ~ncores ~csize f l =
     Parany.run ~verbose:false ~csize ~nprocs:ncores ~demux ~work:f ~mux;
     !output
 
-let pariter ~ncores ~csize f l =
+let pariter ~ncores ?(csize = 1) f l =
   if ncores <= 1 then BatList.iter f l
   else
     let input = ref l in
@@ -30,7 +30,7 @@ let pariter ~ncores ~csize f l =
     (* parallel work *)
     Parany.run ~verbose:false ~csize ~nprocs:ncores ~demux ~work:f ~mux:ignore
 
-let parfold ~ncores ~csize f g init l =
+let parfold ~ncores ?(csize = 1) f g init l =
   if ncores <= 1 then BatList.fold_left g init (BatList.map f l)
   else
     let input = ref l in
