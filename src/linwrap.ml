@@ -239,12 +239,12 @@ let main () =
         else [k] in
       let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
       let best_auc = ref 0.5 in
-      L.iter (fun ((c', w'), k') ->
+      Parmap_wrapper.pariter ~ncores ~csize:1 (fun ((c', w'), k') ->
           let score_labels =
             if nfolds <= 1 then
-              train_test ncores verbose rng c' w' k' train test
+              train_test 1 verbose rng c' w' k' train test
             else (* nfolds > 1 *)
-              nfolds_train_test ncores verbose rng c' w' k' nfolds
+              nfolds_train_test 1 verbose rng c' w' k' nfolds
                 (L.rev_append train test) in
           let auc = ROC.auc score_labels in
           if auc > !best_auc then
