@@ -61,11 +61,11 @@ let balanced_bag rng lines =
   A.to_list tmp_a
 
 (* what to do with the created models *)
-type model_command = Save_into of Utls.filename
-                   | Restore_from of Utls.filename
+type model_command = Restore_from of Utls.filename
+                   | Save_into of Utls.filename
                    | Discard
 
-let single_train_test verbose c w train test =
+let single_train_test verbose cmd c w train test =
   let quiet_command =
     if verbose then ""
     else "2>&1 > /dev/null" in
@@ -92,6 +92,15 @@ let single_train_test verbose c w train test =
   let true_labels = L.map is_active test in
   (* extact predicted scores *)
   let pred_lines = Utls.lines_of_file preds_fn in
+  begin match cmd with
+    | Restore_from _ -> assert(false) (* not dealt with here *)
+    | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn]
+    | Save_into models_fn ->
+      begin
+        Utls.run_command (sprintf "echo %s >> %s" train_fn models_fn);
+        L.iter (Sys.remove) [test_fn; preds_fn]
+      end
+  end;
   match pred_lines with
   | header :: preds ->
     begin
@@ -128,13 +137,13 @@ let prod_predict ncores verbose model_fns test_fn =
            test_fn model_fn preds_fn quiet_command);
     ) model_fns
 
-let train_test ncores verbose rng c w k train test =
-  if k <= 1 then single_train_test verbose c w train test
+let train_test ncores verbose cmd rng c w k train test =
+  if k <= 1 then single_train_test verbose cmd c w train test
   else (* k > 1 *)
     let bags = L.init k (fun _ -> balanced_bag rng train) in
     let k_score_labels =
       Parmap_wrapper.parmap ~ncores (fun bag ->
-          single_train_test verbose c w bag test
+          single_train_test verbose cmd c w bag test
         ) bags in
     average_scores k k_score_labels
 
@@ -165,11 +174,11 @@ let cv_folds n l =
       loop acc' prev' xs in
   loop [] [] test_sets
 
-let nfolds_train_test ncores verbose rng c w k n dataset =
+let nfolds_train_test ncores verbose cmd rng c w k n dataset =
   assert(n > 1);
   L.flatten
     (L.map (fun (train, test) ->
-         train_test ncores verbose rng c w k train test
+         train_test ncores verbose cmd rng c w k train test
        ) (cv_folds n dataset))
 
 let main () =
@@ -186,14 +195,27 @@ let main () =
               [-n <int>]: folds of cross validation\n  \
               [--seed <int>]: fix random seed\n  \
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
-              [--models <filename>]: prod. mode; use trained models\n  \
+              [{-l|--load} <filename>]: prod. mode; use trained models\n  \
+              [{-s|--save} <filename>]: train. mode; save trained models\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
-              [--scan-k]: scan number of bags\n"
+              [--scan-k]: scan number of bags (advice: optim. k rather than w)\n"
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
-  let maybe_models_fn = CLI.get_string_opt ["--models"] args in
+  let will_save = L.mem "-s" args || L.mem "--save" args in
+  let will_load = L.mem "-l" args || L.mem "--load" args in
+  Utls.enforce (not (will_save && will_load))
+    ("Linwrap.main: cannot load and save at the same time");
+  let model_cmd =
+    begin match CLI.get_string_opt ["-s"; "--save"] args with
+      | Some fn -> Save_into fn
+      | None ->
+        begin match CLI.get_string_opt ["-l"; "--load"] args with
+          | Some fn -> Restore_from fn
+          | None -> Discard
+        end
+    end in
   let ncores = CLI.get_int_def ["-np"] args 1 in
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   assert(train_p >= 0.0 && train_p <= 1.0);
@@ -210,8 +232,8 @@ let main () =
   let fixed_w = CLI.get_float_opt ["-w"] args in
   CLI.finalize ();
   let verbose = not quiet in
-  match maybe_models_fn with
-  | Some models_fn ->
+  match model_cmd with
+  | Restore_from models_fn ->
     let model_fns = Utls.lines_of_file models_fn in
     prod_predict ncores verbose model_fns input_fn
   | _ ->
@@ -248,9 +270,9 @@ let main () =
           (fun ((c', w'), k') ->
              let score_labels =
                if nfolds <= 1 then
-                 train_test 1 verbose rng c' w' k' train test
+                 train_test 1 verbose model_cmd rng c' w' k' train test
                else (* nfolds > 1 *)
-                 nfolds_train_test 1 verbose rng c' w' k' nfolds
+                 nfolds_train_test 1 verbose model_cmd rng c' w' k' nfolds
                    (L.rev_append train test) in
              let auc = ROC.auc score_labels in
              (c', w', k', auc))
