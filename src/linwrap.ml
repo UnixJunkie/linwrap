@@ -30,10 +30,14 @@ end
 module ROC = Cpm.MakeROC.Make(SL)
 
 let pred_score_of_pred_line l =
-  Scanf.sscanf l "%s %f %f"
+  (* try *)
+  Scanf.sscanf l "%d %f %f"
     (fun _pred_label pred_act_p _pred_dec_p ->
        pred_act_p
     )
+  (* with exn ->
+   *   let () = Log.fatal "Linwrap.pred_score_of_pred_line: cannot parse: %s" l in
+   *   raise exn *)
 
 (* get one bootstrap sample of size 'nb_samples' using
    sampling with replacement *)
@@ -183,7 +187,14 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
     );
   if verbose then
     (* compute AUC *)
-    failwith "not implemented yet"
+    let auc =
+      let true_labels = L.map is_active (Utls.lines_of_file test_fn) in
+      let pred_scores =
+        L.map (fun l -> Scanf.sscanf l "%f" (fun x -> x))
+          (Utls.lines_of_file output_fn) in
+      let score_labels = L.map SL.create (L.combine true_labels pred_scores) in
+      ROC.auc score_labels in
+    Log.info "AUC: %.3f" auc
 
 let train_test ncores verbose cmd rng c w k train test =
   if k <= 1 then single_train_test verbose cmd c w train test
