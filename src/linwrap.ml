@@ -156,7 +156,8 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
       begin
         (* populate ht *)
         Utls.iteri_on_lines_of_file pred_fn_01 (fun k line ->
-            if k <> 0 then (* skip header line *)
+            if k = 0 then assert(line = "labels 1 -1") (* check header *)
+            else
               Scanf.sscanf line "%d %f %f"
                 (fun _pred_label pred_act_p _pred_dec_p ->
                    Ht.add ht k pred_act_p
@@ -165,7 +166,8 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
         (* accumulate *)
         L.iter (fun pred_fn ->
             Utls.iteri_on_lines_of_file pred_fn (fun k line ->
-                if k <> 0 then (* skip header line *)
+                if k = 0 then assert(line = "labels 1 -1") (* check header *)
+                else
                   Scanf.sscanf line "%d %f %f"
                     (fun _pred_label pred_act_p _pred_dec_p ->
                        Ht.modify k (fun prev_v -> prev_v +. pred_act_p) ht
@@ -257,7 +259,12 @@ let main () =
     ("Linwrap.main: cannot load and save at the same time");
   let model_cmd =
     begin match CLI.get_string_opt ["-s"; "--save"] args with
-      | Some fn -> Save_into fn
+      | Some fn ->
+        let () =
+          Utls.enforce
+            (not (Sys.file_exists fn))
+            ("Linwrap: file already exists: " ^ fn) in
+        Save_into fn
       | None ->
         begin match CLI.get_string_opt ["-l"; "--load"] args with
           | Some fn -> Restore_from fn
