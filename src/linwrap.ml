@@ -30,11 +30,10 @@ end
 module ROC = Cpm.MakeROC.Make(SL)
 
 let pred_score_of_pred_line l =
-  match BatString.split_on_char ' ' l with
-  | [pred_label; pred_score; _ignored] ->
-    assert(pred_label = "-1" || pred_label = "1");
-    float_of_string pred_score
-  | _ -> assert(false)
+  Scanf.sscanf l "%s %f %f"
+    (fun _pred_label pred_act_p _pred_dec_p ->
+       pred_act_p
+    )
 
 (* get one bootstrap sample of size 'nb_samples' using
    sampling with replacement *)
@@ -156,22 +155,20 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
       begin
         (* populate ht *)
         Utls.iteri_on_lines_of_file pred_fn_01 (fun k line ->
-            if k = 0 then assert(line = "labels 1 -1") (* check header *)
+            if k = 0 then
+              assert(line = "labels 1 -1") (* check header *)
             else
-              Scanf.sscanf line "%d %f %f"
-                (fun _pred_label pred_act_p _pred_dec_p ->
-                   Ht.add ht k pred_act_p
-                )
+              let pred_act_p = pred_score_of_pred_line line in
+              Ht.add ht k pred_act_p
           );
         (* accumulate *)
         L.iter (fun pred_fn ->
             Utls.iteri_on_lines_of_file pred_fn (fun k line ->
-                if k = 0 then assert(line = "labels 1 -1") (* check header *)
+                if k = 0 then
+                  assert(line = "labels 1 -1") (* check header *)
                 else
-                  Scanf.sscanf line "%d %f %f"
-                    (fun _pred_label pred_act_p _pred_dec_p ->
-                       Ht.modify k (fun prev_v -> prev_v +. pred_act_p) ht
-                    )
+                  let pred_act_p = pred_score_of_pred_line line in
+                  Ht.modify k (fun prev_v -> prev_v +. pred_act_p) ht
               )
           ) other_pred_fns
       end
@@ -183,7 +180,10 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
         let sum_preds = Ht.find ht i in
         fprintf out "%f\n" (sum_preds /. nb_models)
       done
-    )
+    );
+  if verbose then
+    (* compute AUC *)
+    failwith "not implemented yet"
 
 let train_test ncores verbose cmd rng c w k train test =
   if k <= 1 then single_train_test verbose cmd c w train test
