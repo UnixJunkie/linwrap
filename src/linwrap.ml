@@ -94,11 +94,11 @@ let single_train_test verbose cmd c w train test =
   let pred_lines = Utls.lines_of_file preds_fn in
   begin match cmd with
     | Restore_from _ -> assert(false) (* not dealt with here *)
-    | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn]
+    | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn; model_fn]
     | Save_into models_fn ->
       begin
-        Utls.run_command (sprintf "echo %s >> %s" train_fn models_fn);
-        L.iter (Sys.remove) [test_fn; preds_fn]
+        Utls.run_command (sprintf "echo %s >> %s" model_fn models_fn);
+        L.iter (Sys.remove) [train_fn; test_fn; preds_fn]
       end
   end;
   match pred_lines with
