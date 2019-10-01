@@ -13,6 +13,7 @@ open Printf
 
 module A = BatArray
 module CLI = Minicli.CLI
+module Ht = BatHashtbl
 module L = BatList
 module Log = Dolog.Log
 
@@ -124,18 +125,63 @@ let average_scores k sls =
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
 
-let prod_predict ncores verbose model_fns test_fn =
+let prod_predict ncores verbose model_fns test_fn output_fn =
   let quiet_command =
     if verbose then ""
     else "2>&1 > /dev/null" in
-  Parmap_wrapper.pariter ~ncores (fun model_fn ->
-      let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
-      Log.info "preds_fn: %s" preds_fn;
-      Utls.run_command ~debug:verbose
-        (* '-b 1' forces probabilist predictions instead of raw scores *)
-        (sprintf "liblinear-predict -b 1 %s %s %s %s"
-           test_fn model_fn preds_fn quiet_command);
-    ) model_fns
+  let pred_fns =
+    Parmap_wrapper.parfold ~ncores
+      (fun model_fn ->
+         let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+         Log.info "preds_fn: %s" preds_fn;
+         Utls.run_command ~debug:verbose
+           (* '-b 1' forces probabilist predictions instead of raw scores *)
+           (sprintf "liblinear-predict -b 1 %s %s %s %s"
+              test_fn model_fn preds_fn quiet_command);
+         preds_fn)
+      (fun acc preds_fn -> preds_fn :: acc)
+      [] model_fns in
+  (* all pred files should have this same number of predictions
+     plus a header line *)
+  let nb_rows = Utls.file_nb_lines test_fn in
+  let card = 1 + nb_rows in
+  Utls.enforce
+    (L.for_all (fun fn -> card = (Utls.file_nb_lines fn)) pred_fns)
+    "Linwrap.prod_predict: linwrap_preds_*.txt: different number of lines";
+  (* WARNING: predictions have to fit in memory... *)
+  let ht = Ht.create nb_rows in
+  begin match pred_fns with
+    | [] -> assert(false)
+    | pred_fn_01 :: other_pred_fns ->
+      begin
+        (* populate ht *)
+        Utls.iteri_on_lines_of_file pred_fn_01 (fun k line ->
+            if k <> 0 then (* skip header line *)
+              Scanf.sscanf line "%d %f %f"
+                (fun _pred_label pred_act_p _pred_dec_p ->
+                   Ht.add ht k pred_act_p
+                )
+          );
+        (* accumulate *)
+        L.iter (fun pred_fn ->
+            Utls.iteri_on_lines_of_file pred_fn (fun k line ->
+                if k <> 0 then (* skip header line *)
+                  Scanf.sscanf line "%d %f %f"
+                    (fun _pred_label pred_act_p _pred_dec_p ->
+                       Ht.modify k (fun prev_v -> prev_v +. pred_act_p) ht
+                    )
+              )
+          ) other_pred_fns
+      end
+  end;
+  (* write them to output file, averaged *)
+  Utls.with_out_file output_fn (fun out ->
+      let nb_models = float (L.length pred_fns) in
+      for i = 1 to nb_rows do
+        let sum_preds = Ht.find ht i in
+        fprintf out "%f\n" (sum_preds /. nb_models)
+      done
+    )
 
 let train_test ncores verbose cmd rng c w k train test =
   if k <= 1 then single_train_test verbose cmd c w train test
@@ -188,6 +234,7 @@ let main () =
   if argc = 1 then
     (eprintf "usage: %s\n  \
               -i <filename>: training set or DB to screen\n  \
+              [-o <filename>]: predictions output file\n  \
               [-np <int>]: ncores\n  \
               [-c <float>]: fix C\n  \
               [-w <float>]: fix w1\n  \
@@ -203,6 +250,7 @@ let main () =
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
+  let output_fn = CLI.get_string_def ["-o"] args "/dev/stdout" in
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
   Utls.enforce (not (will_save && will_load))
@@ -235,7 +283,7 @@ let main () =
   match model_cmd with
   | Restore_from models_fn ->
     let model_fns = Utls.lines_of_file models_fn in
-    prod_predict ncores verbose model_fns input_fn
+    prod_predict ncores verbose model_fns input_fn output_fn
   | _ ->
     begin
       let all_lines =
