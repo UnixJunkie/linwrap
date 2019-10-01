@@ -60,6 +60,11 @@ let balanced_bag rng lines =
   A.shuffle ~state:rng tmp_a; (* randomize selected lines order *)
   A.to_list tmp_a
 
+(* what to do with the created models *)
+type model_command = Save_into of Utls.filename
+                   | Restore_from of Utls.filename
+                   | Discard
+
 let single_train_test verbose c w train test =
   let quiet_command =
     if verbose then ""
