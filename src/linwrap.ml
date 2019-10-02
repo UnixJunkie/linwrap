@@ -185,7 +185,7 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
         fprintf out "%f\n" (sum_preds /. nb_models)
       done
     );
-  if verbose then
+  if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
       let true_labels = L.map is_active (Utls.lines_of_file test_fn) in
