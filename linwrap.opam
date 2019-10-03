@@ -14,13 +14,25 @@ depends: [
   "dune"
   "minicli"
   "parany"
-]
-depexts: [
-  ["liblinear-tools"] {os-family = "debian"}
+  "conf-liblinear-tools"
 ]
 synopsis: "Wrapper around liblinear-tools"
 description: """
-TODO
+usage: linwrap
+  -i <filename>: training set or DB to screen
+  [-o <filename>]: predictions output file
+  [-np <int>]: ncores
+  [-c <float>]: fix C
+  [-w <float>]: fix w1
+  [-k <int>]: number of bags for bagging (default=off)
+  [-n <int>]: folds of cross validation
+  [--seed <int>]: fix random seed
+  [-p <float>]: training set portion (in [0.0:1.0])
+  [{-l|--load} <filename>]: prod. mode; use trained models
+  [{-s|--save} <filename>]: train. mode; save trained models
+  [--scan-c]: scan for best C
+  [--scan-w]: scan weight to counter class imbalance
+  [--scan-k]: scan number of bags (advice: optim. k rather than w)
 """
 # url {
 #   src: "https://github.com/UnixJunkie/linwrap/archive/XXX.tar.gz"
