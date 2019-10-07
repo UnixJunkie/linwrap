@@ -18,6 +18,12 @@ depends: [
 ]
 synopsis: "Wrapper around liblinear-tools"
 description: """
+Only L2-regularized logistic regression is supported currently.
+Each model is trained on balanced bootstraps from the training set
+(one bootstrap for the positive class, one for the negative class).
+The size of the bootstrap is the size of the smallest (under-represented)
+class. Bagging is supported and allows to obtain better models.
+
 usage: linwrap
   -i <filename>: training set or DB to screen
   [-o <filename>]: predictions output file
