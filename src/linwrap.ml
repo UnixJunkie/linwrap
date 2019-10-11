@@ -257,6 +257,7 @@ let main () =
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
               [{-l|--load} <filename>]: prod. mode; use trained models\n  \
               [{-s|--save} <filename>]: train. mode; save trained models\n  \
+              [-f]: force overwriting existing model file\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--scan-k]: scan number of bags (advice: optim. k rather than w)\n"
@@ -266,6 +267,7 @@ let main () =
   let output_fn = CLI.get_string_def ["-o"] args "/dev/stdout" in
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
+  let force = CLI.get_set_bool ["-f"] args in
   Utls.enforce (not (will_save && will_load))
     ("Linwrap.main: cannot load and save at the same time");
   let model_cmd =
@@ -273,7 +275,7 @@ let main () =
       | Some fn ->
         let () =
           Utls.enforce
-            (not (Sys.file_exists fn))
+            (force || not (Sys.file_exists fn))
             ("Linwrap: file already exists: " ^ fn) in
         Save_into fn
       | None ->
