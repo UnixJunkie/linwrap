@@ -322,7 +322,7 @@ let main () =
             [0.01; 0.02; 0.05;
              0.1; 0.2; 0.5;
              1.; 2.; 5.;
-             10.; 20.; 50.]
+             10.; 20.; 50.; 100.]
           else [1.0] in
       let ws =
         if scan_w then L.frange 1.0 `To 10.0 10
@@ -330,7 +330,7 @@ let main () =
           | Some w -> [w]
           | None -> [1.0] in
       let ks =
-        if scan_k then [1; 2; 5; 10; 20; 50]
+        if scan_k then [1; 2; 5; 10; 20; 50; 100]
         else [k] in
       let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
       let _best_auc =
