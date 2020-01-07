@@ -15,7 +15,7 @@ depends: [
   "minicli"
   "parany"
   "conf-liblinear-tools"
-  "phashtbl"
+  "dokeysto_camltc"
 ]
 synopsis: "Wrapper around liblinear-tools"
 description: """

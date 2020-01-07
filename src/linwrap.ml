@@ -15,7 +15,7 @@ module A = BatArray
 module CLI = Minicli.CLI
 module L = BatList
 module Log = Dolog.Log
-module PHT = Phashtbl.GenKeyToGenVal
+module PHT = Dokeysto_camltc.Db_camltc.RW
 
 module SL = struct
   type t = bool * float (* (label, pred_score) *)
@@ -152,7 +152,7 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
     (L.for_all (fun fn -> card = (Utls.file_nb_lines fn)) pred_fns)
     "Linwrap.prod_predict: linwrap_preds_*.txt: different number of lines";
   let tmp_pht_fn = Filename.temp_file "linwrap_" ".pht" in
-  let pht = PHT.open_new tmp_pht_fn in
+  let pht = PHT.create tmp_pht_fn in
   Log.info "Persistent hash table file: %s" tmp_pht_fn;
   begin match pred_fns with
     | [] -> assert(false)
@@ -164,7 +164,8 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
               assert(line = "labels 1 -1") (* check header *)
             else
               let pred_act_p = pred_score_of_pred_line line in
-              PHT.add pht k pred_act_p
+              let k_str = string_of_int k in
+              PHT.add pht k_str (Utls.marshal_to_string pred_act_p)
           );
         (* accumulate *)
         L.iter (fun pred_fn ->
@@ -173,8 +174,11 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
                   assert(line = "labels 1 -1") (* check header *)
                 else
                   let pred_act_p = pred_score_of_pred_line line in
-                  let prev_v = PHT.find pht k in
-                  PHT.replace pht k (pred_act_p +. prev_v)
+                  let k_str = string_of_int k in
+                  let prev_v: float =
+                    Utls.unmarshal_from_string (PHT.find pht k_str) in
+                  PHT.replace pht k_str
+                    (Utls.marshal_to_string (pred_act_p +. prev_v))
               )
           ) other_pred_fns
       end
@@ -183,11 +187,13 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
   Utls.with_out_file output_fn (fun out ->
       let nb_models = float (L.length pred_fns) in
       for i = 1 to nb_rows do
-        let sum_preds = PHT.find pht i in
+        let k_str = string_of_int i in
+        let sum_preds: float = Utls.unmarshal_from_string (PHT.find pht k_str) in
         fprintf out "%f\n" (sum_preds /. nb_models)
       done
     );
   PHT.close pht;
+  (* PHT.destroy pht; *) (* FBR: UNCOMMENT AFTER DEBUG *)
   if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
