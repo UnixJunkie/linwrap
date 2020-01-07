@@ -154,11 +154,13 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
   let tmp_pht_fn = Filename.temp_file "linwrap_" ".pht" in
   let pht = PHT.create tmp_pht_fn in
   Log.info "Persistent hash table file: %s" tmp_pht_fn;
+  let nb_models = L.length pred_fns in
   begin match pred_fns with
     | [] -> assert(false)
     | pred_fn_01 :: other_pred_fns ->
       begin
         (* populate ht *)
+        Log.info "gathering %d models..." nb_models;
         Utls.iteri_on_lines_of_file pred_fn_01 (fun k line ->
             if k = 0 then
               assert(line = "labels 1 -1") (* check header *)
@@ -168,7 +170,8 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
               PHT.add pht k_str (Utls.marshal_to_string pred_act_p)
           );
         (* accumulate *)
-        L.iter (fun pred_fn ->
+        L.iteri (fun i pred_fn ->
+            Log.info "done: %d/%d" (i + 1) nb_models;
             Utls.iteri_on_lines_of_file pred_fn (fun k line ->
                 if k = 0 then
                   assert(line = "labels 1 -1") (* check header *)
@@ -180,16 +183,16 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
                   PHT.replace pht k_str
                     (Utls.marshal_to_string (pred_act_p +. prev_v))
               )
-          ) other_pred_fns
+          ) other_pred_fns;
+        Log.info "done: %d/%d" nb_models nb_models
       end
   end;
   (* write them to output file, averaged *)
   Utls.with_out_file output_fn (fun out ->
-      let nb_models = float (L.length pred_fns) in
       for i = 1 to nb_rows do
         let k_str = string_of_int i in
         let sum_preds: float = Utls.unmarshal_from_string (PHT.find pht k_str) in
-        fprintf out "%f\n" (sum_preds /. nb_models)
+        fprintf out "%f\n" (sum_preds /. (float nb_models))
       done
     );
   PHT.close pht;
