@@ -252,6 +252,14 @@ let nfolds_train_test ncores verbose cmd rng c w k n dataset =
          train_test ncores verbose cmd rng c w k train test
        ) (cv_folds n dataset))
 
+let train_test_maybe_nfolds nfolds verbose model_cmd rng c' w' k' train test =
+  let one_cpu = 1 in
+  if nfolds <= 1 then
+    train_test one_cpu verbose model_cmd rng c' w' k' train test
+  else (* nfolds > 1 *)
+    nfolds_train_test one_cpu verbose model_cmd rng c' w' k' nfolds
+      (L.rev_append train test)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -358,11 +366,8 @@ let main () =
         Parmap_wrapper.parfold ~ncores
           (fun ((c', w'), k') ->
              let score_labels =
-               if nfolds <= 1 then
-                 train_test 1 verbose model_cmd rng c' w' k' train test
-               else (* nfolds > 1 *)
-                 nfolds_train_test 1 verbose model_cmd rng c' w' k' nfolds
-                   (L.rev_append train test) in
+               train_test_maybe_nfolds
+                 nfolds verbose model_cmd rng c' w' k' train test in
              let auc = ROC.auc score_labels in
              (c', w', k', auc))
           (fun
