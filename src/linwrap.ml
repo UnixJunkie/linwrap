@@ -260,6 +260,28 @@ let train_test_maybe_nfolds nfolds verbose model_cmd rng c' w' k' train test =
     nfolds_train_test one_cpu verbose model_cmd rng c' w' k' nfolds
       (L.rev_append train test)
 
+(* return the best parameter configuration found in the
+   parameter configs list [cwks]:
+   (best_c, best_w, best_k, best_auc) *)
+let optimize ncores verbose nfolds model_cmd rng train test cwks =
+  Parmap_wrapper.parfold ~ncores
+    (fun ((c', w'), k') ->
+       let score_labels =
+         train_test_maybe_nfolds
+           nfolds verbose model_cmd rng c' w' k' train test in
+       let auc = ROC.auc score_labels in
+       (c', w', k', auc))
+    (fun
+      ((_c, _w, _k, prev_best_auc) as prev)
+      ((c', w', k', curr_auc) as curr) ->
+      if curr_auc > prev_best_auc then
+        (Log.info "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
+         curr)
+      else
+        (Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
+         prev)
+    ) (-1.0, -1.0, -1, 0.5) cwks
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -286,7 +308,7 @@ let main () =
               [--scan-k]: scan number of bags (advice: optim. k rather than w)\n"
        Sys.argv.(0);
      exit 1);
-  let input_fn = CLI.get_string ["-i"] args in
+  let input_fn = CLI.get_string_def ["-i"] args "/dev/null" in
   let maybe_train_fn = CLI.get_string_opt ["--train"] args in
   let maybe_valid_fn = CLI.get_string_opt ["--valid"] args in
   let maybe_test_fn = CLI.get_string_opt ["--test"] args in
@@ -354,7 +376,7 @@ let main () =
   | Save_into (_)
   | Discard ->
     match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
-    | (None, None, None) -> 
+    | (None, None, None) ->
     begin
       let all_lines =
         (* randomize lines *)
@@ -365,28 +387,22 @@ let main () =
       let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
       let train, test = L.takedrop train_card all_lines in
       let _best_c, _best_w, _best_k, _best_auc =
-        Parmap_wrapper.parfold ~ncores
-          (fun ((c', w'), k') ->
-             let score_labels =
-               train_test_maybe_nfolds
-                 nfolds verbose model_cmd rng c' w' k' train test in
-             let auc = ROC.auc score_labels in
-             (c', w', k', auc))
-          (fun
-            ((_c, _w, _k, prev_best_auc) as prev)
-            ((c', w', k', curr_auc) as curr) ->
-            if curr_auc > prev_best_auc then
-              (Log.info "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
-               curr)
-            else
-              (Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
-               prev)
-          ) (-1.0, -1.0, -1, 0.5) cwks in
+        optimize ncores verbose nfolds model_cmd rng train test cwks in
       ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
       begin
-        failwith "not implemented yet"
+        let train = Utls.lines_of_file train_fn in
+        let best_c, best_w, best_k, best_valid_AUC =
+          let valid = Utls.lines_of_file valid_fn in
+          optimize ncores verbose nfolds model_cmd rng train valid cwks in
+        Log.info "valAUC: %.3f" best_valid_AUC;
+        let c', w', k', test_AUC =
+          let test = Utls.lines_of_file test_fn in
+          (* this one is not an optimization run *)
+          optimize ncores verbose nfolds model_cmd rng train test [((best_c, best_w), best_k)] in
+        assert(c' = best_c && w' = best_w && k' = best_k);
+        Log.info "tesAUC: %.3f" test_AUC
       end
     | _ -> failwith
              "Linwrap: --train, --valid and --test: provide all three or none"
