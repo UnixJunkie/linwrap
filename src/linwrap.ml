@@ -316,8 +316,29 @@ let main () =
   let scan_k = CLI.get_set_bool ["--scan-k"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
   let fixed_w = CLI.get_float_opt ["-w"] args in
-  CLI.finalize ();
+  CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
+  (* scan C? *)
+  let cs = match fixed_c with
+    | Some c -> [c]
+    | None ->
+      if scan_C then
+        [0.01; 0.02; 0.05;
+         0.1; 0.2; 0.5;
+         1.; 2.; 5.;
+         10.; 20.; 50.; 100.]
+      else [1.0] in
+  (* scan w? *)
+  let ws =
+    if scan_w then L.frange 1.0 `To 10.0 10
+    else match fixed_w with
+      | Some w -> [w]
+      | None -> [1.0] in
+  (* scan k? *)
+  let ks =
+    if scan_k then [1; 2; 5; 10; 20; 50; 100]
+    else [k] in
+  let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
   match model_cmd with
   | Restore_from models_fn ->
     let model_fns = Utls.lines_of_file models_fn in
@@ -333,25 +354,6 @@ let main () =
       (* partition *)
       let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
       let train, test = L.takedrop train_card all_lines in
-      (* scan C *)
-      let cs = match fixed_c with
-        | Some c -> [c]
-        | None ->
-          if scan_C then
-            [0.01; 0.02; 0.05;
-             0.1; 0.2; 0.5;
-             1.; 2.; 5.;
-             10.; 20.; 50.; 100.]
-          else [1.0] in
-      let ws =
-        if scan_w then L.frange 1.0 `To 10.0 10
-        else match fixed_w with
-          | Some w -> [w]
-          | None -> [1.0] in
-      let ks =
-        if scan_k then [1; 2; 5; 10; 20; 50; 100]
-        else [k] in
-      let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
       let best_c, best_w, best_k, _best_auc =
         Parmap_wrapper.parfold ~ncores
           (fun ((c', w'), k') ->
