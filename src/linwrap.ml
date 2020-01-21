@@ -396,12 +396,14 @@ let main () =
         let best_c, best_w, best_k, best_valid_AUC =
           let valid = Utls.lines_of_file valid_fn in
           optimize ncores verbose nfolds model_cmd rng train valid cwks in
+        Log.info "best (c, w, k) config: %f %f %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
-        let c', w', k', test_AUC =
+        let test_AUC =
           let test = Utls.lines_of_file test_fn in
-          (* this one is not an optimization run *)
-          optimize ncores verbose nfolds model_cmd rng train test [((best_c, best_w), best_k)] in
-        assert(c' = best_c && w' = best_w && k' = best_k);
+          let score_labels =
+            let one_cpu = 1 in
+            train_test one_cpu verbose model_cmd rng best_c best_w best_k train test in
+          ROC.auc score_labels in
         Log.info "tesAUC: %.3f" test_AUC
       end
     | _ -> failwith
