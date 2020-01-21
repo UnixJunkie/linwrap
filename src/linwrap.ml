@@ -287,9 +287,9 @@ let main () =
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
-  let train_fn = CLI.get_string_opt ["--train"] args in
-  let valid_fn = CLI.get_string_opt ["--valid"] args in
-  let test_fn = CLI.get_string_opt ["--test"] args in
+  let maybe_train_fn = CLI.get_string_opt ["--train"] args in
+  let maybe_valid_fn = CLI.get_string_opt ["--valid"] args in
+  let maybe_test_fn = CLI.get_string_opt ["--test"] args in
   let output_fn = CLI.get_string_def ["-o"] args "/dev/stdout" in
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
@@ -353,6 +353,8 @@ let main () =
     prod_predict ncores verbose model_fns input_fn output_fn
   | Save_into (_)
   | Discard ->
+    match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
+    | (None, None, None) -> 
     begin
       let all_lines =
         (* randomize lines *)
@@ -362,7 +364,7 @@ let main () =
       (* partition *)
       let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
       let train, test = L.takedrop train_card all_lines in
-      let best_c, best_w, best_k, _best_auc =
+      let _best_c, _best_w, _best_k, _best_auc =
         Parmap_wrapper.parfold ~ncores
           (fun ((c', w'), k') ->
              let score_labels =
@@ -380,7 +382,13 @@ let main () =
               (Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
                prev)
           ) (-1.0, -1.0, -1, 0.5) cwks in
-      failwith "FBR: maybe run on test set"
+      ()
     end
+    | (Some train_fn, Some valid_fn, Some test_fn) ->
+      begin
+        failwith "not implemented yet"
+      end
+    | _ -> failwith
+             "Linwrap: --train, --valid and --test: provide all three or none"
 
 let () = main ()
