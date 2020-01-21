@@ -267,6 +267,9 @@ let main () =
               [-n <int>]: folds of cross validation\n  \
               [--seed <int>]: fix random seed\n  \
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
+              [--train <train.liblin>]: training set (overrides -p)\n  \
+              [--valid <valid.liblin>]: validation set (overrides -p)\n  \
+              [--test <test.liblin>]: test set (overrides -p)\n  \
               [{-l|--load} <filename>]: prod. mode; use trained models\n  \
               [{-s|--save} <filename>]: train. mode; save trained models\n  \
               [-f]: force overwriting existing model file\n  \
@@ -276,6 +279,9 @@ let main () =
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string ["-i"] args in
+  let train_fn = CLI.get_string_opt ["--train"] args in
+  let valid_fn = CLI.get_string_opt ["--valid"] args in
+  let test_fn = CLI.get_string_opt ["--test"] args in
   let output_fn = CLI.get_string_def ["-o"] args "/dev/stdout" in
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
@@ -316,7 +322,8 @@ let main () =
   | Restore_from models_fn ->
     let model_fns = Utls.lines_of_file models_fn in
     prod_predict ncores verbose model_fns input_fn output_fn
-  | _ ->
+  | Save_into (_)
+  | Discard ->
     begin
       let all_lines =
         (* randomize lines *)
@@ -345,7 +352,7 @@ let main () =
         if scan_k then [1; 2; 5; 10; 20; 50; 100]
         else [k] in
       let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
-      let _best_auc =
+      let best_c, best_w, best_k, _best_auc =
         Parmap_wrapper.parfold ~ncores
           (fun ((c', w'), k') ->
              let score_labels =
@@ -356,19 +363,17 @@ let main () =
                    (L.rev_append train test) in
              let auc = ROC.auc score_labels in
              (c', w', k', auc))
-          (fun best_auc (c', w', k', auc) ->
-             if auc > best_auc then
-               let () =
-                 Log.info "c: %.2f w1: %.1f k: %d AUC: %.3f"
-                   c' w' k' auc in
-               auc
-             else
-               let () =
-                 Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f"
-                   c' w' k' auc in
-               best_auc
-          ) 0.5 cwks in
-      ()
+          (fun
+            ((_c, _w, _k, prev_best_auc) as prev)
+            ((c', w', k', curr_auc) as curr) ->
+            if curr_auc > prev_best_auc then
+              (Log.info "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
+               curr)
+            else
+              (Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
+               prev)
+          ) (-1.0, -1.0, -1, 0.5) cwks in
+      failwith "FBR: maybe run on test set"
     end
 
 let () = main ()
