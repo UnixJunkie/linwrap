@@ -21,7 +21,7 @@ def RobustSmilesMolSupplier(filename):
             name = " ".join(words[1:]) # everything after the SMILES
             yield (Chem.MolFromSmiles(smile), name)
 
-            # CLI setup -------------------------------------------------------------------
+# CLI setup -------------------------------------------------------------------
 parser = OptionParser(usage = """Usage: %prog -i in.smi \
 [-b nb_bits (def=2048)] [-r radius (def=3)] [--sparse] > out.ecfp6""")
 parser.add_option("-i", action = "store", type = "string", dest = "in_fn")
@@ -31,6 +31,24 @@ parser.add_option("-r", action = "store", type = "int", dest = "radius",
                   default = 3) # ECFP6
 # output in sparse format
 parser.add_option("--sparse", action = "store_true", dest = "sparse_fmt")
+
+def name2label(name):
+    res = "-1"
+    if name.startswith("active"):
+        res = "+1"
+    return res
+
+def sparse_string(bit_string):
+    res = ""
+    j = 1 # liblinear feature indexes start at 1
+    for c in bit_string:
+        if c == '1':
+            res += " %d:1" % j
+        j += 1
+    return res
+
+def decode_mol(name, bit_string):
+    return name2label(name) + sparse_string(bit_string)
 
 # main ------------------------------------------------------------------------
 if __name__ == '__main__':
@@ -59,9 +77,10 @@ if __name__ == '__main__':
                                                        nBits = nb_bits)
             bits = fp.ToBitString()
             if sparse_output:
-                assert(False)
+                # liblinear-ready format
+                print("%s" % decode_mol(name, bits))
             else:
-                # this format can be read by molenc's pubchem_decoder
+                # format for molenc's pubchem_decoder
                 print("%s,0.0,%s" % (name, bits))
         else:
             ko_count += 1
