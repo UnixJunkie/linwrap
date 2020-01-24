@@ -6,16 +6,21 @@ bug-reports: "https://github.com/UnixJunkie/linwrap/issues"
 dev-repo: "git+https://github.com/UnixJunkie/linwrap.git"
 license: "BSD-3"
 build: ["dune" "build" "-p" name "-j" jobs]
+install: [
+  ["cp" "bin/ecfp6.py" "%{bin}%/linwrap_ecfp6.py"]
+]
 depends: [
   "base-unix"
   "batteries"
+  "conf-liblinear-tools"
+  "conf-python-3"
+  "conf-rdkit"
   "cpm"
+  "dokeysto_camltc"
   "dolog" {>= "4.0.0"}
   "dune" {>= "1.10"}
   "minicli"
   "parany" {>= "6.0.0"}
-  "conf-liblinear-tools"
-  "dokeysto_camltc"
 ]
 synopsis: "Wrapper around liblinear-tools"
 description: """
