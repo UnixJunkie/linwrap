@@ -25,10 +25,11 @@ depends: [
 synopsis: "Wrapper around liblinear-tools"
 description: """
 Only L2-regularized logistic regression is supported currently.
-Each model is trained on balanced bootstraps from the training set
-(one bootstrap for the positive class, one for the negative class).
+When using bagging, each model is trained on balanced bootstraps
+from the training set (one bootstrap for the positive class,
+one for the negative class).
 The size of the bootstrap is the size of the smallest (under-represented)
-class. Bagging is supported and allows to obtain better models.
+class.
 
 usage: linwrap
   -i <filename>: training set or DB to screen
@@ -40,8 +41,12 @@ usage: linwrap
   [-n <int>]: folds of cross validation
   [--seed <int>]: fix random seed
   [-p <float>]: training set portion (in [0.0:1.0])
+  [--train <train.liblin>]: training set (overrides -p)
+  [--valid <valid.liblin>]: validation set (overrides -p)
+  [--test <test.liblin>]: test set (overrides -p)
   [{-l|--load} <filename>]: prod. mode; use trained models
   [{-s|--save} <filename>]: train. mode; save trained models
+  [-f]: force overwriting existing model file
   [--scan-c]: scan for best C
   [--scan-w]: scan weight to counter class imbalance
   [--scan-k]: scan number of bags (advice: optim. k rather than w)
