@@ -88,6 +88,22 @@ let lines_of_file (fn: filename): string list =
       else res
     )
 
+(* all lines of given file, in reverse order *)
+let rev_lines_of_file (fn: filename): string list =
+  with_in_file fn (fun input ->
+      let res = ref [] in
+      try
+        while true do
+          res := (input_line input) :: !res
+        done;
+        assert(false) (* never reached *)
+      with End_of_file -> !res
+    )
+
+(* map f on lines of file *)
+let map_on_lines_of_file (fn: filename) (f: string -> 'a): 'a list =
+  L.rev_map f (rev_lines_of_file fn)
+
 let lines_to_file fn l =
   with_out_file fn (fun out ->
       List.iter (fprintf out "%s\n") l
@@ -145,14 +161,6 @@ let iteri_on_lines_of_file fn f =
 let map_on_file (fn: filename) (f: in_channel -> 'a): 'a list =
   with_in_file fn (fun input ->
       let res, exn = L.unfold_exc (fun () -> f input) in
-      if exn = End_of_file then res
-      else raise exn
-    )
-
-(* map f on lines of file *)
-let map_on_lines_of_file (fn: filename) (f: string -> 'a): 'a list =
-  with_in_file fn (fun input ->
-      let res, exn = L.unfold_exc (fun () -> f (input_line input)) in
       if exn = End_of_file then res
       else raise exn
     )
