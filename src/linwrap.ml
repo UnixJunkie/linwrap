@@ -282,6 +282,33 @@ let optimize ncores verbose nfolds model_cmd rng train test cwks =
          prev)
     ) (-1.0, -1.0, -1, 0.5) cwks
 
+(* instance-wise normalization *)
+let normalize_line l =
+  let tokens = BatString.nsplit ~by:" " l in
+  match tokens with
+  | [] -> failwith "Linwrap.normalize_line: empty line"
+  | [_label] -> failwith ("Linwrap.normalize_line: no features: " ^ l)
+  | label :: features ->
+    let sum = ref 0 in
+    let feat_vals =
+      L.rev_map (fun feat_val_str ->
+          Scanf.sscanf feat_val_str "%d:%d"
+            (fun feat value ->
+               sum := !sum + value;
+               (feat, value))
+        ) features in
+    let feat_norm_vals =
+      let total = float !sum in
+      L.rev_map (fun (feat, value) ->
+          (feat, (float value) /. total)
+        ) feat_vals in
+    let buff = Buffer.create 1024 in
+    Printf.bprintf buff "%s " label;
+    L.iter (fun (feat, norm_val) ->
+        Printf.bprintf buff " %d:%f" feat norm_val
+      ) feat_norm_vals;
+    Buffer.contents buff
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -346,8 +373,14 @@ let main () =
   let scan_k = CLI.get_set_bool ["--scan-k"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
   let fixed_w = CLI.get_float_opt ["-w"] args in
+  let instance_wise_norm = CLI.get_set_bool ["--iwn"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
+  let lines_of_file fn =
+    if instance_wise_norm then
+      Utls.map_on_lines_of_file fn normalize_line
+    else
+      Utls.lines_of_file fn in
   (* scan C? *)
   let cs = match fixed_c with
     | Some c -> [c]
@@ -381,7 +414,7 @@ let main () =
       let all_lines =
         (* randomize lines *)
         L.shuffle ~state:rng
-          (Utls.lines_of_file input_fn) in
+          (lines_of_file input_fn) in
       let nb_lines = L.length all_lines in
       (* partition *)
       let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
@@ -392,17 +425,18 @@ let main () =
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
       begin
-        let train = Utls.lines_of_file train_fn in
+        let train = lines_of_file train_fn in
         let best_c, best_w, best_k, best_valid_AUC =
-          let valid = Utls.lines_of_file valid_fn in
+          let valid = lines_of_file valid_fn in
           optimize ncores verbose nfolds model_cmd rng train valid cwks in
         Log.info "best (c, w, k) config: %f %f %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =
-          let test = Utls.lines_of_file test_fn in
+          let test = lines_of_file test_fn in
           let score_labels =
             let one_cpu = 1 in
-            train_test one_cpu verbose model_cmd rng best_c best_w best_k train test in
+            train_test one_cpu verbose model_cmd rng best_c best_w best_k
+              train test in
           ROC.auc score_labels in
         Log.info "tesAUC: %.3f" test_AUC
       end
