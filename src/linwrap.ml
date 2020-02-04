@@ -315,8 +315,8 @@ let () =
          "+1 2:0.100000 5:0.800000 123:0.100000");
   assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
 
-let range_of_string = function
-  | None -> L.frange 1.0 `To 10.0 10 (* default range *)
+let decode_w_range = function
+  | None -> L.frange 1.0 `To 10.0 10 (* default w range *)
   | Some s ->
     try
       Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
@@ -324,9 +324,20 @@ let range_of_string = function
         )
     with exn ->
       begin
-        (* Log.fatal "Linwrap.range_of_string: invalid string: %s"  s; *)
+        Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
         raise exn
       end
+
+let decode_c_range (maybe_range_str: string option): float list =
+  match maybe_range_str with
+  | None -> (* default C range *)
+    [0.01; 0.02; 0.05;
+     0.1; 0.2; 0.5;
+     1.; 2.; 5.;
+     10.; 20.; 50.; 100.]
+  | Some range_str ->
+    L.map float_of_string
+      (BatString.nsplit ~by:"," range_str)
 
 let main () =
   Log.(set_log_level INFO);
@@ -353,6 +364,8 @@ let main () =
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--w-range <float>:<int>:<float>]: specific range for w\n  \
               (semantic=start:nsteps:stop)\n  \
+              [--c-range <float,float,...>] explicit scan range for C \n  \
+              (example='0.01,0.02,0.03')\n  \
               [--scan-k]: scan number of bags (advice: optim. k rather than w)\n"
        Sys.argv.(0);
      exit 1);
@@ -390,7 +403,8 @@ let main () =
   let scan_C = CLI.get_set_bool ["--scan-c"] args in
   let fixed_c = CLI.get_float_opt ["-c"] args in
   let scan_w = CLI.get_set_bool ["--scan-w"] args in
-  let range_str_opt = CLI.get_string_opt ["--w-range"] args in
+  let w_range_str = CLI.get_string_opt ["--w-range"] args in
+  let c_range_str = CLI.get_string_opt ["--c-range"] args in
   let k = CLI.get_int_def ["-k"] args 1 in
   let scan_k = CLI.get_set_bool ["--scan-k"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
@@ -407,16 +421,13 @@ let main () =
   let cs = match fixed_c with
     | Some c -> [c]
     | None ->
-      if scan_C then
-        [0.01; 0.02; 0.05;
-         0.1; 0.2; 0.5;
-         1.; 2.; 5.;
-         10.; 20.; 50.; 100.]
+      if scan_C || Option.is_some c_range_str then
+        decode_c_range c_range_str
       else [1.0] in
   (* scan w? *)
   let ws =
-    if scan_w || Option.is_some range_str_opt then
-      range_of_string range_str_opt
+    if scan_w || Option.is_some w_range_str then
+      decode_w_range w_range_str
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
