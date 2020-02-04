@@ -275,10 +275,10 @@ let optimize ncores verbose nfolds model_cmd rng train test cwks =
       ((_c, _w, _k, prev_best_auc) as prev)
       ((c', w', k', curr_auc) as curr) ->
       if curr_auc > prev_best_auc then
-        (Log.info "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
+        (Log.info "c: %f w1: %f k: %d AUC: %.3f" c' w' k' curr_auc;
          curr)
       else
-        (Log.warn "c: %.2f w1: %.1f k: %d AUC: %.3f" c' w' k' curr_auc;
+        (Log.warn "c: %f w1: %f k: %d AUC: %.3f" c' w' k' curr_auc;
          prev)
     ) (-1.0, -1.0, -1, 0.5) cwks
 
