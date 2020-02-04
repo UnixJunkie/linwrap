@@ -315,6 +315,19 @@ let () =
          "+1 2:0.100000 5:0.800000 123:0.100000");
   assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
 
+let range_of_string = function
+  | None -> L.frange 1.0 `To 10.0 10 (* default range *)
+  | Some s ->
+    try
+      Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
+          L.frange start `To stop nsteps
+        )
+    with exn ->
+      begin
+        (* Log.fatal "Linwrap.range_of_string: invalid string: %s"  s; *)
+        raise exn
+      end
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -338,6 +351,8 @@ let main () =
               [-f]: force overwriting existing model file\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
+              [--w-range <float>:<int>:<float>]: specific range for w\n  \
+              (semantic=start:nsteps:stop)\n  \
               [--scan-k]: scan number of bags (advice: optim. k rather than w)\n"
        Sys.argv.(0);
      exit 1);
@@ -375,6 +390,7 @@ let main () =
   let scan_C = CLI.get_set_bool ["--scan-c"] args in
   let fixed_c = CLI.get_float_opt ["-c"] args in
   let scan_w = CLI.get_set_bool ["--scan-w"] args in
+  let range_str_opt = CLI.get_string_opt ["--w-range"] args in
   let k = CLI.get_int_def ["-k"] args 1 in
   let scan_k = CLI.get_set_bool ["--scan-k"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
@@ -399,7 +415,8 @@ let main () =
       else [1.0] in
   (* scan w? *)
   let ws =
-    if scan_w then L.frange 1.0 `To 10.0 10
+    if scan_w || Option.is_some range_str_opt then
+      range_of_string range_str_opt
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
