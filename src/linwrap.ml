@@ -421,12 +421,12 @@ let main () =
   let cs = match fixed_c with
     | Some c -> [c]
     | None ->
-      if scan_C || Option.is_some c_range_str then
+      if scan_C || BatOption.is_some c_range_str then
         decode_c_range c_range_str
       else [1.0] in
   (* scan w? *)
   let ws =
-    if scan_w || Option.is_some w_range_str then
+    if scan_w || BatOption.is_some w_range_str then
       decode_w_range w_range_str
     else match fixed_w with
       | Some w -> [w]
