@@ -303,11 +303,17 @@ let normalize_line l =
           (feat, (float value) /. total)
         ) feat_vals in
     let buff = Buffer.create 1024 in
-    Printf.bprintf buff "%s " label;
+    Buffer.add_string buff label;
     L.iter (fun (feat, norm_val) ->
         Printf.bprintf buff " %d:%f" feat norm_val
       ) feat_norm_vals;
     Buffer.contents buff
+
+(* the uggliest unit test suite in the whole OCaml world *)
+let () =
+  assert(normalize_line "+1 2:1 5:8 123:1" =
+         "+1 2:0.100000 5:0.800000 123:0.100000");
+  assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
 
 let main () =
   Log.(set_log_level INFO);
