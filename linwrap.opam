@@ -20,7 +20,7 @@ depends: [
   "dolog" {>= "4.0.0"}
   "dune" {>= "1.10"}
   "minicli"
-  "parany" {>= "6.0.0"}
+  "parany" {>= "10.0.1"}
 ]
 synopsis: "Wrapper around liblinear-tools"
 description: """

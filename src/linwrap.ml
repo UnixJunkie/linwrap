@@ -133,7 +133,7 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
     if verbose then ""
     else "2>&1 > /dev/null" in
   let pred_fns =
-    Parmap_wrapper.parfold ~ncores
+    Parany.Parmap.parfold ~ncores
       (fun model_fn ->
          let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
          Log.info "preds_fn: %s" preds_fn;
@@ -213,7 +213,7 @@ let train_test ncores verbose cmd rng c w k train test =
   else (* k > 1 *)
     let bags = L.init k (fun _ -> balanced_bag rng train) in
     let k_score_labels =
-      Parmap_wrapper.parmap ~ncores (fun bag ->
+      Parany.Parmap.parmap ~ncores (fun bag ->
           single_train_test verbose cmd c w bag test
         ) bags in
     average_scores k k_score_labels
@@ -264,7 +264,7 @@ let train_test_maybe_nfolds nfolds verbose model_cmd rng c' w' k' train test =
    parameter configs list [cwks]:
    (best_c, best_w, best_k, best_auc) *)
 let optimize ncores verbose nfolds model_cmd rng train test cwks =
-  Parmap_wrapper.parfold ~ncores
+  Parany.Parmap.parfold ~ncores
     (fun ((c', w'), k') ->
        let score_labels =
          train_test_maybe_nfolds
@@ -284,7 +284,7 @@ let optimize ncores verbose nfolds model_cmd rng train test cwks =
 
 (* instance-wise normalization *)
 let normalize_line l =
-  let tokens = BatString.nsplit ~by:" " l in
+  let tokens = BatString.split_on_char ' ' l in
   match tokens with
   | [] -> failwith "Linwrap.normalize_line: empty line"
   | [_label] -> failwith ("Linwrap.normalize_line: no features: " ^ l)
@@ -337,7 +337,7 @@ let decode_c_range (maybe_range_str: string option): float list =
      10.; 20.; 50.; 100.]
   | Some range_str ->
     L.map float_of_string
-      (BatString.nsplit ~by:"," range_str)
+      (BatString.split_on_char ',' range_str)
 
 let main () =
   Log.(set_log_level INFO);
