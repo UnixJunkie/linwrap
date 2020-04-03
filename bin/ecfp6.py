@@ -79,7 +79,6 @@ if __name__ == '__main__':
     sparse_output = opts.sparse_fmt
     ok_count = 0
     ko_count = 0
-    workers_pool = Pool(nprocs)
     opened_file = open(input_fn, 'r')
 
     # WARNING: this function is defined here in order to use some
@@ -98,15 +97,15 @@ if __name__ == '__main__':
             # format for molenc's pubchem_decoder
             return("%s,0.0,%s" % (name, bits))
 
+    workers_pool = Pool(nprocs) # AFTER definition of process_one
     while True:
         # unfold
         mol_bunch = read_several(csize, opened_file)
         nb_read = len(mol_bunch)
         if nb_read == 0:
             break # got EOF
-        ## parallel map
-        #to_print = workers_pool.map(process_one, mol_bunch)
-        to_print = map(process_one, mol_bunch)
+        # parallel map
+        to_print = workers_pool.map(process_one, mol_bunch)
         # fold
         for x in to_print:
             print(x)
@@ -114,6 +113,7 @@ if __name__ == '__main__':
         # user feedback
         print("done: %d" % ok_count, end='\r', file=sys.stderr, flush=True)
 
+    workers_pool.close()
     opened_file.close()
     after = time.time()
     dt = after - before
