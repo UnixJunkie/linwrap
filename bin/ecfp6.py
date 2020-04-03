@@ -50,6 +50,22 @@ def sparse_string(bit_string):
 def decode_mol(name, bit_string):
     return name2label(name) + sparse_string(bit_string)
 
+# read a bunch of molecules at once
+def read_several(count, opened_file):
+    res = []
+    for i in range(count):
+        line = opened_file.readline()
+        if line == '':
+            opened_file.close()
+            break
+        words = line.split()
+        smile = words[0]
+        mol = Chem.MolFromSmiles(smile)
+        if mol:
+            name = " ".join(words[1:]) # everything after the SMILES
+            res.append((mol, name))
+    return res
+
 # main ------------------------------------------------------------------------
 if __name__ == '__main__':
     before = time.time()
