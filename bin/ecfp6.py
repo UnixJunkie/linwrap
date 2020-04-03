@@ -99,12 +99,17 @@ if __name__ == '__main__':
             return("%s,0.0,%s" % (name, bits))
 
     while True:
+        # unfold
         mol_bunch = read_several(csize, opened_file)
         nb_read = len(mol_bunch)
         if nb_read == 0:
-            break # reached EOF
-        for x in mol_bunch:
-            print(process_one(x))
+            break # got EOF
+        ## parallel map
+        #to_print = workers_pool.map(process_one, mol_bunch)
+        to_print = map(process_one, mol_bunch)
+        # fold
+        for x in to_print:
+            print(x)
         ok_count += nb_read
         # user feedback
         print("done: %d" % ok_count, end='\r', file=sys.stderr, flush=True)
