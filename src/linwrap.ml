@@ -260,6 +260,28 @@ let train_test_maybe_nfolds nfolds verbose model_cmd rng c' w' k' train test =
     nfolds_train_test one_cpu verbose model_cmd rng c' w' k' nfolds
       (L.rev_append train test)
 
+(* find the best threshold to do classification instead of ranking;
+   by maximizing MCC over the threshold's range *)
+let mcc_scan_proper ncores score_labels =
+  let nsteps = 1000 in
+  let thresholds = L.frange 0.0 `To 1.0 nsteps in
+  let mccs =
+    Parany.Parmap.parmap ~ncores (fun t ->
+        let mcc = ROC.mcc t score_labels in
+        (t, mcc)
+      ) thresholds in
+  let (_tmin, _mcc_min), (threshold, mcc_max) =
+    L.min_max ~cmp:(fun (_t1, mcc1) (_t2, mcc2) ->
+        BatFloat.compare (mcc1) (mcc2)
+      ) mccs in
+  (threshold, mcc_max)
+
+let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
+  Utls.enforce (nfolds > 1) "Linwrap.mcc_scan: nfolds <= 1";
+  let score_labels = nfolds_train_test ncores verbose cmd rng c w k nfolds dataset in
+  let threshold, mcc_max = mcc_scan_proper ncores score_labels in
+  Log.info "threshold: %f MCC: %f" threshold mcc_max
+
 (* return the best parameter configuration found in the
    parameter configs list [cwks]:
    (best_c, best_w, best_k, best_auc) *)
@@ -352,6 +374,8 @@ let main () =
               [-w <float>]: fix w1\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
               [-n <int>]: folds of cross validation\n  \
+              [--mcc-scan]: MCC scan for a trained model (requires n>1)\n  \
+                            also requires (c, w, k) to be known\n  \
               [--seed <int>]: fix random seed\n  \
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
               [--train <train.liblin>]: training set (overrides -p)\n  \
@@ -407,6 +431,7 @@ let main () =
   let c_range_str = CLI.get_string_opt ["--c-range"] args in
   let k = CLI.get_int_def ["-k"] args 1 in
   let scan_k = CLI.get_set_bool ["--scan-k"] args in
+  let do_mcc_scan = CLI.get_set_bool ["--mcc-scan"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
   let fixed_w = CLI.get_float_opt ["-w"] args in
   let instance_wise_norm = CLI.get_set_bool ["--iwn"] args in
@@ -444,18 +469,26 @@ let main () =
   | Discard ->
     match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
     | (None, None, None) ->
-    begin
-      let all_lines =
-        (* randomize lines *)
-        L.shuffle ~state:rng
-          (lines_of_file input_fn) in
-      let nb_lines = L.length all_lines in
-      (* partition *)
-      let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
-      let train, test = L.takedrop train_card all_lines in
-      let _best_c, _best_w, _best_k, _best_auc =
-        optimize ncores verbose nfolds model_cmd rng train test cwks in
-      ()
+      begin
+        let all_lines =
+          (* randomize lines *)
+          L.shuffle ~state:rng
+            (lines_of_file input_fn) in
+        if do_mcc_scan then
+          begin match cs, ws, ks with
+            | [c], [w], [k] ->
+              (* we only try MCC scan for a model with known parameters *)
+              mcc_scan ncores verbose model_cmd rng c w k nfolds all_lines
+            | _, _, _ -> failwith "Linwrap: --mcc-scan: some hyper params are still free"
+          end
+        else
+          let nb_lines = L.length all_lines in
+          (* partition *)
+          let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
+          let train, test = L.takedrop train_card all_lines in
+          let _best_c, _best_w, _best_k, _best_auc =
+            optimize ncores verbose nfolds model_cmd rng train test cwks in
+          ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
       begin
