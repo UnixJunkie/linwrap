@@ -280,7 +280,7 @@ let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
   Utls.enforce (nfolds > 1) "Linwrap.mcc_scan: nfolds <= 1";
   let score_labels = nfolds_train_test ncores verbose cmd rng c w k nfolds dataset in
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
-  Log.info "threshold: %f MCC: %f" threshold mcc_max
+  Log.info "threshold: %f %dxCV_MCC: %f" threshold nfolds mcc_max
 
 (* return the best parameter configuration found in the
    parameter configs list [cwks]:
