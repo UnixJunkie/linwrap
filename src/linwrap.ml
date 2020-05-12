@@ -263,7 +263,7 @@ let train_test_maybe_nfolds nfolds verbose model_cmd rng c' w' k' train test =
 (* find the best threshold to do classification instead of ranking;
    by maximizing MCC over the threshold's range *)
 let mcc_scan_proper ncores score_labels =
-  let nsteps = 1000 in
+  let nsteps = 1001 in
   let thresholds = L.frange 0.0 `To 1.0 nsteps in
   let mccs =
     Parany.Parmap.parmap ~ncores (fun t ->
