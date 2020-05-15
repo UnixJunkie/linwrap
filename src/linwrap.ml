@@ -133,7 +133,7 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
     if verbose then ""
     else "2>&1 > /dev/null" in
   let pred_fns =
-    Parany.Parmap.parfold ~ncores
+    Parany.Parmap.parfold ncores
       (fun model_fn ->
          let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
          Log.info "preds_fn: %s" preds_fn;
@@ -213,7 +213,7 @@ let train_test ncores verbose cmd rng c w k train test =
   else (* k > 1 *)
     let bags = L.init k (fun _ -> balanced_bag rng train) in
     let k_score_labels =
-      Parany.Parmap.parmap ~ncores (fun bag ->
+      Parany.Parmap.parmap ncores (fun bag ->
           single_train_test verbose cmd c w bag test
         ) bags in
     average_scores k k_score_labels
@@ -266,7 +266,7 @@ let mcc_scan_proper ncores score_labels =
   let nsteps = 1001 in
   let thresholds = L.frange 0.0 `To 1.0 nsteps in
   let mccs =
-    Parany.Parmap.parmap ~ncores (fun t ->
+    Parany.Parmap.parmap ncores (fun t ->
         let mcc = ROC.mcc t score_labels in
         (t, mcc)
       ) thresholds in
@@ -286,7 +286,7 @@ let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
    parameter configs list [cwks]:
    (best_c, best_w, best_k, best_auc) *)
 let optimize ncores verbose nfolds model_cmd rng train test cwks =
-  Parany.Parmap.parfold ~ncores
+  Parany.Parmap.parfold ncores
     (fun ((c', w'), k') ->
        let score_labels =
          train_test_maybe_nfolds
