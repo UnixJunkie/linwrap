@@ -356,7 +356,7 @@ let decode_c_range (maybe_range_str: string option): float list =
     [0.01; 0.02; 0.05;
      0.1; 0.2; 0.5;
      1.; 2.; 5.;
-     10.; 20.; 50.; 100.]
+     10.; 20.; 50.; 100.] (* FBR: add 0.0 to this list? Remove 100.0? *)
   | Some range_str ->
     L.map float_of_string
       (BatString.split_on_char ',' range_str)
@@ -365,7 +365,9 @@ let decode_c_range (maybe_range_str: string option): float list =
    "Parameter Selection for Linear Support Vector Regression."
    Jui-Yang Hsia and Chih-Jen Lin.
    February 2020. IEEE Transactions on Neural Networks and Learning Systems.
-   DOI: 10.1109/TNNLS.2020.2967637 *)
+   DOI: 10.1109/TNNLS.2020.2967637
+   To optimize a SVR, we need to do the exponential scan of C
+   for each epsilon value. *)
 let svr_epsilon_range (nsteps: int) (ys: float list): float list =
   let maxi = L.max (L.rev_map (abs_float) ys) in
   Log.info "SVR epsilon range: [0:%f]" maxi;
