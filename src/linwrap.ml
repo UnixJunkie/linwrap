@@ -278,7 +278,8 @@ let mcc_scan_proper ncores score_labels =
 
 let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
   Utls.enforce (nfolds > 1) "Linwrap.mcc_scan: nfolds <= 1";
-  let score_labels = nfolds_train_test ncores verbose cmd rng c w k nfolds dataset in
+  let score_labels =
+    nfolds_train_test ncores verbose cmd rng c w k nfolds dataset in
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
   Log.info "threshold: %f %dxCV_MCC: %f" threshold nfolds mcc_max
 
@@ -405,7 +406,8 @@ let main () =
               (semantic=start:nsteps:stop)\n  \
               [--c-range <float,float,...>] explicit scan range for C \n  \
               (example='0.01,0.02,0.03')\n  \
-              [--scan-k]: scan number of bags (advice: optim. k rather than w)\n"
+              [--scan-k]: scan number of bags \
+              (advice: optim. k rather than w)\n"
        Sys.argv.(0);
      exit 1);
   let input_fn = CLI.get_string_def ["-i"] args "/dev/null" in
@@ -494,12 +496,14 @@ let main () =
             | [c], [w], [k] ->
               (* we only try MCC scan for a model with known parameters *)
               mcc_scan ncores verbose model_cmd rng c w k nfolds all_lines
-            | _, _, _ -> failwith "Linwrap: --mcc-scan: some hyper params are still free"
+            | _, _, _ ->
+              failwith "Linwrap: --mcc-scan: some hyper params are still free"
           end
         else
           let nb_lines = L.length all_lines in
           (* partition *)
-          let train_card = BatFloat.round_to_int (train_p *. (float nb_lines)) in
+          let train_card =
+            BatFloat.round_to_int (train_p *. (float nb_lines)) in
           let train, test = L.takedrop train_card all_lines in
           let _best_c, _best_w, _best_k, _best_auc =
             optimize ncores verbose nfolds model_cmd rng train test cwks in
