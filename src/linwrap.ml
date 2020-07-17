@@ -35,7 +35,7 @@ let pred_score_of_pred_line l =
     (fun _pred_label pred_act_p _pred_dec_p ->
        pred_act_p
     )
-  (* with exn ->
+(* with exn ->
    *   let () = Log.fatal "Linwrap.pred_score_of_pred_line: cannot parse: %s" l in
    *   raise exn *)
 
@@ -361,6 +361,16 @@ let decode_c_range (maybe_range_str: string option): float list =
     L.map float_of_string
       (BatString.split_on_char ',' range_str)
 
+(* (0 <= epsilon <= max_i(|y_i|)); according to:
+   "Parameter Selection for Linear Support Vector Regression."
+   Jui-Yang Hsia and Chih-Jen Lin.
+   February 2020. IEEE Transactions on Neural Networks and Learning Systems.
+   DOI: 10.1109/TNNLS.2020.2967637 *)
+let svr_epsilon_range (nsteps: int) (ys: float list): float list =
+  let maxi = L.max (L.rev_map (abs_float) ys) in
+  Log.info "SVR epsilon range: [0:%f]" maxi;
+  L.frange 0.0 `To maxi nsteps
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -371,6 +381,8 @@ let main () =
               [-o <filename>]: predictions output file\n  \
               [-np <int>]: ncores\n  \
               [-c <float>]: fix C\n  \
+              [-e <float>]: fix epsilon (for SVR);\n  \
+              (0 <= epsilon <= max_i(|y_i|))\n  \
               [-w <float>]: fix w1\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
               [-n <int>]: folds of cross validation\n  \
@@ -385,6 +397,7 @@ let main () =
               [{-s|--save} <filename>]: train. mode; save trained models\n  \
               [-f]: force overwriting existing model file\n  \
               [--scan-c]: scan for best C\n  \
+              [--scan-e <int>]: epsilon scan #steps for SVR\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--w-range <float>:<int>:<float>]: specific range for w\n  \
               (semantic=start:nsteps:stop)\n  \
