@@ -12,6 +12,7 @@ install: [
 depends: [
   "base-unix"
   "batteries"
+  "conf-gnuplot"
   "conf-liblinear-tools"
   "conf-python-3"
   "conf-rdkit"
