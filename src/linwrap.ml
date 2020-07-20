@@ -15,6 +15,7 @@ module A = BatArray
 module CLI = Minicli.CLI
 module L = BatList
 module Log = Dolog.Log
+module Opt = BatOption
 module PHT = Dokeysto_camltc.Db_camltc.RW
 
 module SL = struct
@@ -55,7 +56,7 @@ let is_active s =
 (* the sparse data file format for liblinear starts with the target_float_val
  * as the first field followed by idx:val space-separated FP values  *)
 let get_pIC50 s =
-  let pIC50_str, _fp = BatString.split s ~by:"," in
+  let pIC50_str, _fp = BatString.split s ~by:" " in
   (float_of_string pIC50_str)
 
 let balanced_bag rng lines =
@@ -120,7 +121,7 @@ let single_train_test verbose cmd c w train test =
     end
   | _ -> assert(false)
 
-let single_train_test_regr verbose cmd c e train test =
+let single_train_test_regr verbose cmd e c train test =
   let quiet_option = if not verbose then "-q" else "" in
   (* train *)
   let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
@@ -356,6 +357,36 @@ let optimize ncores verbose nfolds model_cmd rng train test cwks =
          prev)
     ) (-1.0, -1.0, -1, 0.5) cwks
 
+(* find best (e, C) configuration by R2 maximization *)
+let best_r2 l =
+  L.fold_left (fun
+                ((_best_e, _best_c, best_r2) as best)
+                ((_curr_e, _curr_c, curr_r2) as new_best) ->
+                if best_r2 >= curr_r2 then best else new_best
+              ) (0.0, 0.0, 0.0) l
+
+(* return the best parameter configuration (C, epsilon) found *)
+let optimize_regr verbose ncores es cs train test =
+  let e_c_r2s =
+    Parany.Parmap.parmap ncores (fun e ->
+        L.map (fun c ->
+            let act, preds =
+              single_train_test_regr verbose Discard e c train test in
+            let r2 = Cpm.RegrStats.r2 act preds in
+            (if verbose then
+               (if r2 < 0.3 then
+                  Log.error "(e, C, R2) = %f %f %.3f" e c r2
+                else if r2 < 0.5 then
+                  Log.warn "(e, C, R2) = %f %f %.3f" e c r2
+                else
+                  Log.info "(e, C, R2) = %f %f %.3f" e c r2
+               )
+            );
+            (e, c, r2)
+          ) cs
+      ) es in
+  best_r2 (L.map best_r2 e_c_r2s)
+
 (* instance-wise normalization *)
 let normalize_line l =
   let tokens = BatString.split_on_char ' ' l in
@@ -405,7 +436,7 @@ let decode_w_range = function
 let decode_c_range (maybe_range_str: string option): float list =
   match maybe_range_str with
   | None -> (* default C range *)
-    [0.0; 0.01; 0.02; 0.05;
+    [0.01; 0.02; 0.05;
      0.1; 0.2; 0.5;
      1.; 2.; 5.;
      10.; 20.; 50.]
@@ -422,8 +453,20 @@ let decode_c_range (maybe_range_str: string option): float list =
    for each epsilon value. *)
 let svr_epsilon_range (nsteps: int) (ys: float list): float list =
   let maxi = L.max (L.rev_map (abs_float) ys) in
-  Log.info "SVR epsilon range: [0:%f]" maxi;
+  Log.info "SVR epsilon range: [0:%f]; nsteps=%d" maxi nsteps;
   L.frange 0.0 `To maxi nsteps
+
+let epsilon_range maybe_epsilon maybe_esteps train =
+  match (maybe_epsilon, maybe_esteps) with
+  | (Some _, Some _) -> failwith "Linwrap.epsilon_range: both e and esteps"
+  | (None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
+  | (Some e, None) -> [e]
+  | (None, Some nsteps) ->
+    let train_pIC50s = L.map get_pIC50 train in
+    (* FBR: might be nice to see: (min, avg+/-std, max) *)
+    svr_epsilon_range nsteps train_pIC50s
+
+(* FBR: support nfolds upon optimize_regr *)
 
 let main () =
   Log.(set_log_level INFO);
@@ -452,6 +495,7 @@ let main () =
               [-f]: force overwriting existing model file\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-e <int>]: epsilon scan #steps for SVR\n  \
+              [--regr]: regression/SVR (also, implied by -e and --scan-e)\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--w-range <float>:<int>:<float>]: specific range for w\n  \
               (semantic=start:nsteps:stop)\n  \
@@ -503,6 +547,11 @@ let main () =
   let quiet = CLI.get_set_bool ["-q"] args in
   let fixed_w = CLI.get_float_opt ["-w"] args in
   let instance_wise_norm = CLI.get_set_bool ["--iwn"] args in
+  Utls.enforce (not (L.mem "-e" args && L.mem "--scan-e" args))
+    "Linwrap: -e and --scan-e are exclusive";
+  let maybe_epsilon = CLI.get_float_opt ["-e"] args in
+  let maybe_esteps = CLI.get_int_opt ["--scan-e"] args in
+  let do_regression = Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps in
   CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
   let lines_of_file fn =
@@ -556,9 +605,16 @@ let main () =
           let train_card =
             BatFloat.round_to_int (train_p *. (float nb_lines)) in
           let train, test = L.takedrop train_card all_lines in
-          let _best_c, _best_w, _best_k, _best_auc =
-            optimize ncores verbose nfolds model_cmd rng train test cwks in
-          ()
+          if do_regression then
+            let best_e, best_c, best_r2 =
+              let epsilons = epsilon_range maybe_epsilon maybe_esteps train in
+              optimize_regr verbose ncores epsilons cs train test in
+            Log.info "best(e, C, R2) = %f %f %.3f"
+              best_e best_c best_r2
+          else (* classification *)
+            let _best_c, _best_w, _best_k, _best_auc =
+              optimize ncores verbose nfolds model_cmd rng train test cwks in
+            ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
       begin
