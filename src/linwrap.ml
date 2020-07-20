@@ -407,6 +407,15 @@ let optimize_regr_nfolds ncores verbose nfolds es cs train =
       ) es in
   best_r2 (L.map best_r2 e_c_r2s)
 
+let single_train_test_regr_nfolds verbose nfolds e c train =
+  let train_tests = Cpm.Utls.cv_folds nfolds train in
+  let all_act_preds =
+    L.map (fun (train', test') ->
+        single_train_test_regr verbose Discard e c train' test'
+      ) train_tests in
+  let xs, ys = L.split all_act_preds in
+  (L.concat xs, L.concat ys)
+
 (* instance-wise normalization *)
 let normalize_line l =
   let tokens = BatString.split_on_char ' ' l in
@@ -633,14 +642,23 @@ let main () =
             begin
               let best_e, best_c, best_r2 =
                 let epsilons = epsilon_range maybe_epsilon maybe_esteps train in
-                optimize_regr verbose ncores epsilons cs train test in
+                if nfolds = 1 then
+                  optimize_regr verbose ncores epsilons cs train test
+                else
+                  optimize_regr_nfolds
+                    ncores verbose nfolds epsilons cs all_lines in
               let title_str =
-                sprintf "e=%g C=%g R2=%.3f" best_e best_c best_r2 in
+                sprintf "nfolds=%d e=%g C=%g R2=%.3f"
+                  nfolds best_e best_c best_r2 in
               Log.info "%s" title_str;
               (if not no_gnuplot then
                  let actual, preds =
-                   single_train_test_regr verbose Discard best_e best_c train test
-                 in
+                   if nfolds = 1 then
+                     single_train_test_regr
+                       verbose Discard best_e best_c train test
+                   else
+                     single_train_test_regr_nfolds
+                       verbose nfolds best_e best_c all_lines in
                  Gnuplot.regr_plot title_str actual preds
               )
             end

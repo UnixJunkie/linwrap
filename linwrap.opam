@@ -16,7 +16,7 @@ depends: [
   "conf-liblinear-tools"
   "conf-python-3"
   "conf-rdkit"
-  "cpm"
+  "cpm" {>= "10.2.1"}
   "dokeysto_camltc"
   "dolog" {>= "4.0.0"}
   "dune" {>= "1.10"}
