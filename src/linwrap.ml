@@ -387,6 +387,26 @@ let optimize_regr verbose ncores es cs train test =
       ) es in
   best_r2 (L.map best_r2 e_c_r2s)
 
+(* like optimize_regr, but using NxCV *)
+let optimize_regr_nfolds ncores verbose nfolds es cs train =
+  let train_tests = Cpm.Utls.cv_folds nfolds train in
+  let e_c_r2s =
+    Parany.Parmap.parmap ncores (fun e ->
+        L.map (fun c ->
+            let all_act_preds =
+              L.map (fun (train', test') ->
+                  single_train_test_regr verbose Discard e c train' test'
+                ) train_tests in
+            let acts, preds =
+              let xs, ys = L.split all_act_preds in
+              (L.concat xs, L.concat ys) in
+            let r2 = Cpm.RegrStats.r2 acts preds in
+            log_R2 verbose e c r2;
+            (e, c, r2)
+          ) cs
+      ) es in
+  best_r2 (L.map best_r2 e_c_r2s)
+
 (* instance-wise normalization *)
 let normalize_line l =
   let tokens = BatString.split_on_char ' ' l in
@@ -469,8 +489,6 @@ let epsilon_range maybe_epsilon maybe_esteps train =
     Log.info "(min, avg+/-std, max): %.3f %.3f+/-%.3f %.3f"
       mini avg std maxi;
     svr_epsilon_range nsteps train_pIC50s
-
-(* FBR: support nfolds upon optimize_regr *)
 
 let main () =
   Log.(set_log_level INFO);
