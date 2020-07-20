@@ -242,7 +242,7 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
       done
     );
   PHT.close pht;
-  (* PHT.destroy pht; *) (* FBR: UNCOMMENT AFTER DEBUG *)
+  PHT.destroy pht;
   if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
