@@ -495,7 +495,7 @@ let main () =
               [-f]: force overwriting existing model file\n  \
               [--scan-c]: scan for best C\n  \
               [--scan-e <int>]: epsilon scan #steps for SVR\n  \
-              [--regr]: regression/SVR (also, implied by -e and --scan-e)\n  \
+              [--regr]: regression (SVR); also, implied by -e and --scan-e\n  \
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--w-range <float>:<int>:<float>]: specific range for w\n  \
               (semantic=start:nsteps:stop)\n  \
