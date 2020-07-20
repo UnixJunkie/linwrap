@@ -52,6 +52,12 @@ let array_bootstrap_sample rng nb_samples a =
 let is_active s =
   BatString.starts_with s "+1 "
 
+(* the sparse data file format for liblinear starts with the target_float_val
+ * as the first field followed by idx:val space-separated FP values  *)
+let get_pIC50 s =
+  let pIC50_str, _fp = BatString.split s ~by:"," in
+  (float_of_string pIC50_str)
+
 let balanced_bag rng lines =
   let acts, decs = L.partition is_active lines in
   let n =
@@ -113,6 +119,45 @@ let single_train_test verbose cmd c w train test =
       L.map SL.create (L.combine true_labels pred_scores)
     end
   | _ -> assert(false)
+
+let single_train_test_regr verbose cmd c e train test =
+  let quiet_option = if not verbose then "-q" else "" in
+  (* train *)
+  let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
+  Utls.lines_to_file train_fn train;
+  let replaced, model_fn =
+    (* liblinear places the model in the current working dir... *)
+    BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
+  assert(replaced);
+  Utls.run_command ~debug:verbose
+    (sprintf "liblinear-train %s -s 11 -c %f -p %f %s %s"
+       quiet_option c e train_fn model_fn);
+  (* test *)
+  let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
+  Utls.lines_to_file test_fn test;
+  let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+  (* compute R2 on test set *)
+  Utls.run_command ~debug:verbose
+    (sprintf "liblinear-predict %s %s %s %s"
+       quiet_option test_fn model_fn preds_fn);
+  let actual_values = L.map get_pIC50 test in
+  let pred_lines = Utls.lines_of_file preds_fn in
+  let nb_preds = L.length pred_lines in
+  let test_card = L.length test in
+  Utls.enforce (nb_preds = test_card)
+    (sprintf "Linwrap.single_train_test_regr: |preds|=%d <> |test|=%d"
+       nb_preds test_card);
+  begin match cmd with
+    | Restore_from _ -> assert(false) (* not dealt with here *)
+    | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn; model_fn]
+    | Save_into models_fn ->
+      begin
+        Utls.run_command (sprintf "echo %s >> %s" model_fn models_fn);
+        L.iter (Sys.remove) [train_fn; test_fn; preds_fn]
+      end
+  end;
+  let pred_values = L.map float_of_string pred_lines in
+  (actual_values, pred_values)
 
 let accumulate_scores x y = match (x, y) with
   | ([], sl2) -> sl2
@@ -207,6 +252,10 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
       let score_labels = L.map SL.create (L.combine true_labels pred_scores) in
       ROC.auc score_labels in
     Log.info "AUC: %.3f" auc
+
+let prod_predict_regr verbose model_fn test_fn output_fn =
+  (* FBR:TODO *)
+  failwith "not implemented yet"
 
 let train_test ncores verbose cmd rng c w k train test =
   if k <= 1 then single_train_test verbose cmd c w train test
