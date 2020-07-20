@@ -453,7 +453,7 @@ let decode_c_range (maybe_range_str: string option): float list =
    for each epsilon value. *)
 let svr_epsilon_range (nsteps: int) (ys: float list): float list =
   let maxi = L.max (L.rev_map (abs_float) ys) in
-  Log.info "SVR epsilon range: [0:%f]; nsteps=%d" maxi nsteps;
+  Log.info "SVR epsilon range: [0:%.3f]; nsteps=%d" maxi nsteps;
   L.frange 0.0 `To maxi nsteps
 
 let epsilon_range maybe_epsilon maybe_esteps train =
@@ -463,7 +463,11 @@ let epsilon_range maybe_epsilon maybe_esteps train =
   | (Some e, None) -> [e]
   | (None, Some nsteps) ->
     let train_pIC50s = L.map get_pIC50 train in
-    (* FBR: might be nice to see: (min, avg+/-std, max) *)
+    let mini, maxi = L.min_max ~cmp:BatFloat.compare train_pIC50s in
+    let avg = L.favg train_pIC50s in
+    let std = Utls.stddev train_pIC50s in
+    Log.info "(min, avg+/-std, max): %.3f %.3f+/-%.3f %.3f"
+      mini avg std maxi;
     svr_epsilon_range nsteps train_pIC50s
 
 (* FBR: support nfolds upon optimize_regr *)
