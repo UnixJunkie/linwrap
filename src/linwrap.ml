@@ -254,8 +254,10 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
     Log.info "AUC: %.3f" auc
 
 let prod_predict_regr verbose model_fn test_fn output_fn =
-  (* FBR:TODO *)
-  failwith "not implemented yet"
+  let quiet_option = if not verbose then "-q" else "" in
+  Utls.run_command ~debug:verbose
+    (sprintf "liblinear-predict %s %s %s %s"
+       quiet_option test_fn model_fn output_fn)
 
 let train_test ncores verbose cmd rng c w k train test =
   if k <= 1 then single_train_test verbose cmd c w train test
