@@ -151,9 +151,10 @@ let single_train_test_regr verbose cmd e c train test =
   begin match cmd with
     | Restore_from _ -> assert(false) (* not dealt with here *)
     | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn; model_fn]
-    | Save_into models_fn ->
+    | Save_into out_fn ->
       begin
-        Utls.run_command (sprintf "echo %s >> %s" model_fn models_fn);
+        Sys.rename model_fn out_fn;
+        Log.info "model saved to: %s" out_fn;
         L.iter (Sys.remove) [train_fn; test_fn; preds_fn]
       end
   end;
@@ -651,16 +652,15 @@ let main () =
                 sprintf "nfolds=%d e=%g C=%g R2=%.3f"
                   nfolds best_e best_c best_r2 in
               Log.info "%s" title_str;
+              let actual, preds =
+                if nfolds = 1 then
+                  single_train_test_regr
+                    verbose model_cmd best_e best_c train test
+                else
+                  single_train_test_regr_nfolds
+                    verbose nfolds best_e best_c all_lines in
               (if not no_gnuplot then
-                 let actual, preds =
-                   if nfolds = 1 then
-                     single_train_test_regr
-                       verbose Discard best_e best_c train test
-                   else
-                     single_train_test_regr_nfolds
-                       verbose nfolds best_e best_c all_lines in
-                 Gnuplot.regr_plot title_str actual preds
-              )
+                 Gnuplot.regr_plot title_str actual preds)
             end
           else (* classification *)
             let _best_c, _best_w, _best_k, _best_auc =
