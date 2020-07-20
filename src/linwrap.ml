@@ -485,6 +485,7 @@ let main () =
               [-e <float>]: fix epsilon (for SVR);\n  \
               (0 <= epsilon <= max_i(|y_i|))\n  \
               [-w <float>]: fix w1\n  \
+              [--no-plot]: no gnuplot\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
               [-n <int>]: folds of cross validation\n  \
               [--mcc-scan]: MCC scan for a trained model (requires n>1)\n  \
@@ -556,6 +557,7 @@ let main () =
   let maybe_epsilon = CLI.get_float_opt ["-e"] args in
   let maybe_esteps = CLI.get_int_opt ["--scan-e"] args in
   let do_regression = Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps in
+  let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
   let lines_of_file fn =
@@ -610,11 +612,20 @@ let main () =
             BatFloat.round_to_int (train_p *. (float nb_lines)) in
           let train, test = L.takedrop train_card all_lines in
           if do_regression then
-            let best_e, best_c, best_r2 =
-              let epsilons = epsilon_range maybe_epsilon maybe_esteps train in
-              optimize_regr verbose ncores epsilons cs train test in
-            Log.info "best(e, C, R2) = %f %f %.3f"
-              best_e best_c best_r2
+            begin
+              let best_e, best_c, best_r2 =
+                let epsilons = epsilon_range maybe_epsilon maybe_esteps train in
+                optimize_regr verbose ncores epsilons cs train test in
+              let title_str =
+                sprintf "e=%g C=%g R2=%.3f" best_e best_c best_r2 in
+              Log.info "%s" title_str;
+              (if not no_gnuplot then
+                 let actual, preds =
+                   single_train_test_regr verbose Discard best_e best_c train test
+                 in
+                 Gnuplot.regr_plot title_str actual preds
+              )
+            end
           else (* classification *)
             let _best_c, _best_w, _best_k, _best_auc =
               optimize ncores verbose nfolds model_cmd rng train test cwks in
