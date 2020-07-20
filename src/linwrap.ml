@@ -500,6 +500,12 @@ let epsilon_range maybe_epsilon maybe_esteps train =
       mini avg std maxi;
     svr_epsilon_range nsteps train_pIC50s
 
+let read_IC50s_from_train_fn train_fn =
+  Utls.map_on_lines_of_file train_fn get_pIC50
+
+let read_IC50s_from_preds_fn preds_fn =
+  Utls.map_on_lines_of_file preds_fn float_of_string
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -584,7 +590,9 @@ let main () =
     "Linwrap: -e and --scan-e are exclusive";
   let maybe_epsilon = CLI.get_float_opt ["-e"] args in
   let maybe_esteps = CLI.get_int_opt ["--scan-e"] args in
-  let do_regression = Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps in
+  let do_regression =
+    CLI.get_set_bool ["--regr"] args ||
+    Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps in
   let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
@@ -614,8 +622,19 @@ let main () =
   let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
   match model_cmd with
   | Restore_from models_fn ->
-    let model_fns = Utls.lines_of_file models_fn in
-    prod_predict ncores verbose model_fns input_fn output_fn
+    if do_regression then
+      begin
+        prod_predict_regr verbose models_fn input_fn output_fn;
+        let acts = read_IC50s_from_train_fn input_fn in
+        let preds = read_IC50s_from_preds_fn output_fn in
+        let r2 = Cpm.RegrStats.r2 acts preds in
+        let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
+        (if not no_gnuplot then
+           Gnuplot.regr_plot title_str acts preds)
+      end
+    else
+      let model_fns = Utls.lines_of_file models_fn in
+      prod_predict ncores verbose model_fns input_fn output_fn
   | Save_into (_)
   | Discard ->
     match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
