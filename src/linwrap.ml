@@ -445,7 +445,7 @@ let normalize_line l =
       ) feat_norm_vals;
     Buffer.contents buff
 
-(* the uggliest unit test suite in the whole OCaml world *)
+(* unit tests for normalize_line *)
 let () =
   assert(normalize_line "+1 2:1 5:8 123:1" =
          "+1 2:0.100000 5:0.800000 123:0.100000");
@@ -454,34 +454,42 @@ let () =
 (* liblinear wants first feature index=1 instead of 0 *)
 let increment_feat_indexes features =
   let buff = Buffer.create 1024 in
-  let feat_vals = S.split_on_char ';' features in
+  let feat_vals = S.split_on_char ' ' features in
   L.iter (fun feat_val ->
       Scanf.sscanf feat_val "%d:%d"
         (fun feat value ->
            bprintf buff " %d:%d" (feat + 1) value
         )
     ) feat_vals;
+  (* eprintf "len:%d features:%s\nres:%s\n%!"
+     (L.length feat_vals) features res; *)
   Buffer.contents buff
 
-(* FBR: offset indexes by 1 because of liblinear *)
 let atom_pairs_line_to_csv do_classification line =
   (* Example for classification:
-     * "active<NAME>,pIC50,[feat:val;...]" -> "+1 feat:val ..."
-     * "<NAME>,pIC50,[feat:val;...]" -> "-1 feat:val ..." *)
+   * "active<NAME>,pIC50,[feat:val;...]" -> "+1 feat:val ..."
+   * "<NAME>,pIC50,[feat:val;...]" -> "-1 feat:val ..." *)
   match S.split_on_char ',' line with
   | [name; pIC50; features] ->
     let label_str =
       if do_classification then
-        if is_active name then "+1" else "-1"
+        if S.starts_with name "active" then "+1" else "-1"
       else (* regression *)
         pIC50 in
     assert(S.left features 1 = "[" && S.right features 1 = "]");
     let semi_colon_to_space = function | ';' -> " "
-                                       | x -> S.of_char x in
+                                       | x -> (S.of_char x) in
     let features' =
       S.replace_chars semi_colon_to_space (S.chop ~l:1 ~r:1 features) in
-    sprintf "%s %s" label_str features'
+    sprintf "%s%s" label_str (increment_feat_indexes features')
   | _ -> failwith ("Linwrap.atom_pairs_line_to_csv: cannot parse: " ^ line)
+
+(* unit tests for atom_pairs_line_to_csv *)
+let () =
+  let s1 = atom_pairs_line_to_csv true "activeMOL,1.0,[2:1;5:8;123:1]" in
+  Utls.enforce ("+1 3:1 6:8 124:1" = s1) s1;
+  let s2 = atom_pairs_line_to_csv false "activeMolecule,1.0,[2:1;5:8;123:1]" in
+  Utls.enforce ("1.0 3:1 6:8 124:1" = s2) s2
 
 let decode_w_range = function
   | None -> L.frange 1.0 `To 10.0 10 (* default w range *)
