@@ -505,9 +505,8 @@ let normalize_line l =
 
 (* unit tests for normalize_line *)
 let () =
-  assert(normalize_line "+1 2:1 5:8 123:1" =
-         "+1 2:0.100000 5:0.800000 123:0.100000");
-  assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
+  assert(normalize_line "+1 2:1 5:8 123:1" = "+1 2:0.1 5:0.8 123:0.1");
+  assert(normalize_line "-1 2:3 4:7" = "-1 2:0.3 4:0.7")
 
 let prod_predict_regr
     verbose pairs do_classification model_fn test_fn output_fn =
