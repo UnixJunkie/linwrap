@@ -451,6 +451,18 @@ let () =
          "+1 2:0.100000 5:0.800000 123:0.100000");
   assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
 
+(* liblinear wants first feature index=1 instead of 0 *)
+let increment_feat_indexes features =
+  let buff = Buffer.create 1024 in
+  let feat_vals = S.split_on_char ';' features in
+  L.iter (fun feat_val ->
+      Scanf.sscanf feat_val "%d:%d"
+        (fun feat value ->
+           bprintf buff " %d:%d" (feat + 1) value
+        )
+    ) feat_vals;
+  Buffer.contents buff
+
 (* FBR: offset indexes by 1 because of liblinear *)
 let atom_pairs_line_to_csv do_classification line =
   (* Example for classification:
