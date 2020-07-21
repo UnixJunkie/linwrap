@@ -130,7 +130,7 @@ let single_train_test verbose pairs cmd c w train test =
     end
   | _ -> assert(false)
 
-let single_train_test_regr verbose pairs cmd e c train test =
+let single_train_test_regr verbose cmd e c train test =
   let quiet_option = if not verbose then "-q" else "" in
   (* train *)
   let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
@@ -150,7 +150,7 @@ let single_train_test_regr verbose pairs cmd e c train test =
   Utls.run_command ~debug:verbose
     (sprintf "liblinear-predict %s %s %s %s"
        quiet_option test_fn model_fn preds_fn);
-  let actual_values = L.map (get_pIC50 pairs) test in
+  let actual_values = L.map (get_pIC50 false) test in
   let pred_lines = Utls.lines_of_file preds_fn in
   let nb_preds = L.length pred_lines in
   let test_card = L.length test in
@@ -434,12 +434,12 @@ let log_R2 verbose e c r2 =
     end
 
 (* return the best parameter configuration (C, epsilon) found *)
-let optimize_regr verbose pairs ncores es cs train test =
+let optimize_regr verbose ncores es cs train test =
   let e_c_r2s =
     Parany.Parmap.parmap ncores (fun e ->
         L.map (fun c ->
             let act, preds =
-              single_train_test_regr verbose pairs Discard e c train test in
+              single_train_test_regr verbose Discard e c train test in
             let r2 = Cpm.RegrStats.r2 act preds in
             log_R2 verbose e c r2;
             (e, c, r2)
@@ -448,14 +448,14 @@ let optimize_regr verbose pairs ncores es cs train test =
   best_r2 (L.map best_r2 e_c_r2s)
 
 (* like optimize_regr, but using NxCV *)
-let optimize_regr_nfolds ncores verbose pairs nfolds es cs train =
+let optimize_regr_nfolds ncores verbose nfolds es cs train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
   let e_c_r2s =
     Parany.Parmap.parmap ncores (fun e ->
         L.map (fun c ->
             let all_act_preds =
               L.map (fun (train', test') ->
-                  single_train_test_regr verbose pairs Discard e c train' test'
+                  single_train_test_regr verbose Discard e c train' test'
                 ) train_tests in
             let acts, preds =
               let xs, ys = L.split all_act_preds in
@@ -467,11 +467,11 @@ let optimize_regr_nfolds ncores verbose pairs nfolds es cs train =
       ) es in
   best_r2 (L.map best_r2 e_c_r2s)
 
-let single_train_test_regr_nfolds verbose pairs nfolds e c train =
+let single_train_test_regr_nfolds verbose nfolds e c train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
   let all_act_preds =
     L.map (fun (train', test') ->
-        single_train_test_regr verbose pairs Discard e c train' test'
+        single_train_test_regr verbose Discard e c train' test'
       ) train_tests in
   let xs, ys = L.split all_act_preds in
   (L.concat xs, L.concat ys)
@@ -751,10 +751,10 @@ let main () =
                 let epsilons =
                   epsilon_range pairs maybe_epsilon maybe_esteps train in
                 if nfolds = 1 then
-                  optimize_regr verbose pairs ncores epsilons cs train test
+                  optimize_regr verbose ncores epsilons cs train test
                 else
                   optimize_regr_nfolds
-                    ncores verbose pairs nfolds epsilons cs all_lines in
+                    ncores verbose nfolds epsilons cs all_lines in
               let title_str =
                 sprintf "nfolds=%d e=%g C=%g R2=%.3f"
                   nfolds best_e best_c best_r2 in
@@ -762,10 +762,10 @@ let main () =
               let actual, preds =
                 if nfolds = 1 then
                   single_train_test_regr
-                    verbose pairs model_cmd best_e best_c train test
+                    verbose model_cmd best_e best_c train test
                 else
                   single_train_test_regr_nfolds
-                    verbose pairs nfolds best_e best_c all_lines in
+                    verbose nfolds best_e best_c all_lines in
               (if not no_gnuplot then
                  Gnuplot.regr_plot title_str actual preds)
             end
