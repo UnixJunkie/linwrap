@@ -97,7 +97,8 @@ let single_train_test verbose pairs cmd c w train test =
     BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
   Utls.run_command ~debug:verbose
-    (sprintf "liblinear-train -c %f -w1 %f -s 0 %s %s"
+    (sprintf "head %s; liblinear-train -c %g -w1 %g -s 0 %s %s"
+       train_fn
        c w train_fn quiet_command);
   (* test *)
   let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
@@ -106,7 +107,8 @@ let single_train_test verbose pairs cmd c w train test =
   (* compute AUC on test set *)
   Utls.run_command ~debug:verbose
     (* '-b 1' forces probabilist predictions instead of raw scores *)
-    (sprintf "liblinear-predict -b 1 %s %s %s %s"
+    (sprintf "head %s; liblinear-predict -b 1 %s %s %s %s"
+       test_fn
        test_fn model_fn preds_fn quiet_command);
   (* extract true labels *)
   let true_labels = L.map (is_active pairs) test in
@@ -116,10 +118,8 @@ let single_train_test verbose pairs cmd c w train test =
     | Restore_from _ -> assert(false) (* not dealt with here *)
     | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn; model_fn]
     | Save_into models_fn ->
-      begin
-        Utls.run_command (sprintf "echo %s >> %s" model_fn models_fn);
-        L.iter (Sys.remove) [train_fn; test_fn; preds_fn]
-      end
+      (Utls.run_command (sprintf "echo %s >> %s" model_fn models_fn);
+       if not verbose then L.iter (Sys.remove) [train_fn; test_fn; preds_fn])
   end;
   match pred_lines with
   | header :: preds ->
@@ -140,7 +140,7 @@ let single_train_test_regr verbose cmd e c train test =
     BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
   Utls.run_command ~debug:verbose
-    (sprintf "liblinear-train %s -s 11 -c %f -p %f %s %s"
+    (sprintf "liblinear-train %s -s 11 -c %g -p %g %s %s"
        quiet_option c e train_fn model_fn);
   (* test *)
   let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
@@ -303,7 +303,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
       for i = 1 to nb_rows do
         let k_str = string_of_int i in
         let sum_preds: float = Utls.unmarshal_from_string (PHT.find pht k_str) in
-        fprintf out "%f\n" (sum_preds /. (float nb_models))
+        fprintf out "%g\n" (sum_preds /. (float nb_models))
       done
     );
   PHT.close pht;
@@ -393,7 +393,7 @@ let mcc_scan ncores verbose pairs cmd rng c w k nfolds dataset =
   let score_labels =
     nfolds_train_test ncores verbose pairs cmd rng c w k nfolds dataset in
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
-  Log.info "threshold: %f %dxCV_MCC: %f" threshold nfolds mcc_max
+  Log.info "threshold: %g %dxCV_MCC: %g" threshold nfolds mcc_max
 
 (* return the best parameter configuration found in the
    parameter configs list [cwks]:
@@ -410,10 +410,10 @@ let optimize ncores verbose pairs nfolds model_cmd rng train test cwks =
       ((_c, _w, _k, prev_best_auc) as prev)
       ((c', w', k', curr_auc) as curr) ->
       if curr_auc > prev_best_auc then
-        (Log.info "c: %f w1: %f k: %d AUC: %.3f" c' w' k' curr_auc;
+        (Log.info "c: %g w1: %g k: %d AUC: %.3f" c' w' k' curr_auc;
          curr)
       else
-        (Log.warn "c: %f w1: %f k: %d AUC: %.3f" c' w' k' curr_auc;
+        (Log.warn "c: %g w1: %g k: %d AUC: %.3f" c' w' k' curr_auc;
          prev)
     ) (-1.0, -1.0, -1, 0.5) cwks
 
@@ -428,9 +428,9 @@ let best_r2 l =
 let log_R2 verbose e c r2 =
   if verbose then
     begin
-      if r2 < 0.3 then Log.error "(e, C, R2) = %f %f %.3f" e c r2
-      else if r2 < 0.5 then Log.warn "(e, C, R2) = %f %f %.3f" e c r2
-      else Log.info "(e, C, R2) = %f %f %.3f" e c r2
+      if r2 < 0.3 then Log.error "(e, C, R2) = %g %g %.3f" e c r2
+      else if r2 < 0.5 then Log.warn "(e, C, R2) = %g %g %.3f" e c r2
+      else Log.info "(e, C, R2) = %g %g %.3f" e c r2
     end
 
 (* return the best parameter configuration (C, epsilon) found *)
@@ -499,7 +499,7 @@ let normalize_line l =
     let buff = Buffer.create 1024 in
     Buffer.add_string buff label;
     L.iter (fun (feat, norm_val) ->
-        Printf.bprintf buff " %d:%f" feat norm_val
+        Printf.bprintf buff " %d:%g" feat norm_val
       ) feat_norm_vals;
     Buffer.contents buff
 
@@ -783,7 +783,7 @@ let main () =
             lines_of_file
               pairs do_classification instance_wise_norm valid_fn in
           optimize ncores verbose pairs nfolds model_cmd rng train valid cwks in
-        Log.info "best (c, w, k) config: %f %f %d" best_c best_w best_k;
+        Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =
           let test =
