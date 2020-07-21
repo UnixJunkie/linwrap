@@ -506,6 +506,12 @@ let read_IC50s_from_train_fn train_fn =
 let read_IC50s_from_preds_fn preds_fn =
   Utls.map_on_lines_of_file preds_fn float_of_string
 
+let lines_of_file instance_wise_norm fn =
+  if instance_wise_norm then
+    Utls.map_on_lines_of_file fn normalize_line
+  else
+    Utls.lines_of_file fn
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -526,6 +532,8 @@ let main () =
                             also requires (c, w, k) to be known\n  \
               [--seed <int>]: fix random seed\n  \
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
+              [--pairs]: read from .AP files (atom pairs; \
+              will offset feat. indexes by 1)\n  \
               [--train <train.liblin>]: training set (overrides -p)\n  \
               [--valid <valid.liblin>]: validation set (overrides -p)\n  \
               [--test <test.liblin>]: test set (overrides -p)\n  \
@@ -552,6 +560,7 @@ let main () =
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
   let force = CLI.get_set_bool ["-f"] args in
+  let _pairs = CLI.get_set_bool ["--pairs"] args in
   Utls.enforce (not (will_save && will_load))
     ("Linwrap.main: cannot load and save at the same time");
   let model_cmd =
@@ -596,11 +605,6 @@ let main () =
   let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
-  let lines_of_file fn =
-    if instance_wise_norm then
-      Utls.map_on_lines_of_file fn normalize_line
-    else
-      Utls.lines_of_file fn in
   (* scan C? *)
   let cs = match fixed_c with
     | Some c -> [c]
@@ -643,7 +647,7 @@ let main () =
         let all_lines =
           (* randomize lines *)
           L.shuffle ~state:rng
-            (lines_of_file input_fn) in
+            (lines_of_file instance_wise_norm input_fn) in
         if do_mcc_scan then
           begin match cs, ws, ks with
             | [c], [w], [k] ->
@@ -688,14 +692,14 @@ let main () =
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
       begin
-        let train = lines_of_file train_fn in
+        let train = lines_of_file instance_wise_norm train_fn in
         let best_c, best_w, best_k, best_valid_AUC =
-          let valid = lines_of_file valid_fn in
+          let valid = lines_of_file instance_wise_norm valid_fn in
           optimize ncores verbose nfolds model_cmd rng train valid cwks in
         Log.info "best (c, w, k) config: %f %f %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =
-          let test = lines_of_file test_fn in
+          let test = lines_of_file instance_wise_norm test_fn in
           let score_labels =
             let one_cpu = 1 in
             train_test one_cpu verbose model_cmd rng best_c best_w best_k
