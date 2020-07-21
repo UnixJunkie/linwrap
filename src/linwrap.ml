@@ -13,6 +13,7 @@ open Printf
 
 module A = BatArray
 module CLI = Minicli.CLI
+module Fn = Filename
 module L = BatList
 module Log = Dolog.Log
 module Opt = BatOption
@@ -51,17 +52,24 @@ let array_bootstrap_sample rng nb_samples a =
       a.(rand)
     )
 
-let is_active s =
-  BatString.starts_with s "+1 "
+let is_active pairs s =
+  BatString.starts_with s (if pairs then "active" else "+1 ")
 
-(* the sparse data file format for liblinear starts with the target_float_val
- * as the first field followed by idx:val space-separated FP values  *)
-let get_pIC50 s =
-  let pIC50_str, _fp = BatString.split s ~by:" " in
-  (float_of_string pIC50_str)
+let get_pIC50 pairs s =
+  if pairs then
+    try Scanf.sscanf s "%s@,%f,%s" (fun _name pIC50 _features -> pIC50)
+    with exn -> (Log.error "Linwrap.get_pIC50 pairs: cannot parse: %s" s;
+                 raise exn)
+  else
+    (* the sparse data file format for liblinear starts with the
+     * target_float_val as the first field followed by
+       idx:val space-separated FP values *)
+    try Scanf.sscanf s "%f %s" (fun pIC50 _features -> pIC50)
+    with exn -> (Log.error "Linwrap.get_pIC50: cannot parse: %s" s;
+                 raise exn)
 
-let balanced_bag rng lines =
-  let acts, decs = L.partition is_active lines in
+let balanced_bag pairs rng lines =
+  let acts, decs = L.partition (is_active pairs) lines in
   let n =
     let n_acts = L.length acts in
     let n_decs = L.length decs in
@@ -77,7 +85,7 @@ type model_command = Restore_from of Utls.filename
                    | Save_into of Utls.filename
                    | Discard
 
-let single_train_test verbose cmd c w train test =
+let single_train_test verbose pairs cmd c w train test =
   let quiet_command =
     if verbose then ""
     else "2>&1 > /dev/null" in
@@ -101,7 +109,7 @@ let single_train_test verbose cmd c w train test =
     (sprintf "liblinear-predict -b 1 %s %s %s %s"
        test_fn model_fn preds_fn quiet_command);
   (* extract true labels *)
-  let true_labels = L.map is_active test in
+  let true_labels = L.map (is_active pairs) test in
   (* extact predicted scores *)
   let pred_lines = Utls.lines_of_file preds_fn in
   begin match cmd with
@@ -122,7 +130,7 @@ let single_train_test verbose cmd c w train test =
     end
   | _ -> assert(false)
 
-let single_train_test_regr verbose cmd e c train test =
+let single_train_test_regr verbose pairs cmd e c train test =
   let quiet_option = if not verbose then "-q" else "" in
   (* train *)
   let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
@@ -142,7 +150,7 @@ let single_train_test_regr verbose cmd e c train test =
   Utls.run_command ~debug:verbose
     (sprintf "liblinear-predict %s %s %s %s"
        quiet_option test_fn model_fn preds_fn);
-  let actual_values = L.map get_pIC50 test in
+  let actual_values = L.map (get_pIC50 pairs) test in
   let pred_lines = Utls.lines_of_file preds_fn in
   let nb_preds = L.length pred_lines in
   let test_card = L.length test in
@@ -176,7 +184,55 @@ let average_scores k sls =
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
 
-let prod_predict ncores verbose model_fns test_fn output_fn =
+(* liblinear wants first feature index=1 instead of 0 *)
+let increment_feat_indexes features =
+  let buff = Buffer.create 1024 in
+  let feat_vals = S.split_on_char ' ' features in
+  L.iter (fun feat_val ->
+      Scanf.sscanf feat_val "%d:%d"
+        (fun feat value ->
+           bprintf buff " %d:%d" (feat + 1) value
+        )
+    ) feat_vals;
+  (* eprintf "len:%d features:%s\nres:%s\n%!"
+     (L.length feat_vals) features res; *)
+  Buffer.contents buff
+
+let atom_pairs_line_to_csv do_classification line =
+  (* Example for classification:
+   * "active<NAME>,pIC50,[feat:val;...]" -> "+1 feat:val ..."
+   * "<NAME>,pIC50,[feat:val;...]" -> "-1 feat:val ..." *)
+  match S.split_on_char ',' line with
+  | [name; pIC50; features] ->
+    let label_str =
+      if do_classification then
+        if S.starts_with name "active" then "+1" else "-1"
+      else (* regression *)
+        pIC50 in
+    assert(S.left features 1 = "[" && S.right features 1 = "]");
+    let semi_colon_to_space = function | ';' -> " "
+                                       | x -> (S.of_char x) in
+    let features' =
+      S.replace_chars semi_colon_to_space (S.chop ~l:1 ~r:1 features) in
+    sprintf "%s%s" label_str (increment_feat_indexes features')
+  | _ -> failwith ("Linwrap.atom_pairs_line_to_csv: cannot parse: " ^ line)
+
+(* unit tests for atom_pairs_line_to_csv *)
+let () =
+  let s1 = atom_pairs_line_to_csv true "activeMOL,1.0,[2:1;5:8;123:1]" in
+  Utls.enforce ("+1 3:1 6:8 124:1" = s1) s1;
+  let s2 = atom_pairs_line_to_csv false "activeMolecule,1.0,[2:1;5:8;123:1]" in
+  Utls.enforce ("1.0 3:1 6:8 124:1" = s2) s2
+
+let pairs_to_csv verbose do_classification pairs_fn =
+  let tmp_csv_fn = Fn.temp_file "linwrap_pairs2csv_" ".csv" in
+  (if verbose then Log.info "--pairs -> tmp CSV: %s" tmp_csv_fn);
+  Utls.lines_to_file tmp_csv_fn
+    (Utls.map_on_lines_of_file pairs_fn
+       (atom_pairs_line_to_csv do_classification));
+  tmp_csv_fn
+
+let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   let quiet_command =
     if verbose then ""
     else "2>&1 > /dev/null" in
@@ -185,10 +241,17 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
       (fun model_fn ->
          let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
          Log.info "preds_fn: %s" preds_fn;
+         let tmp_csv_fn =
+           if pairs then
+             let do_classification = true in
+             pairs_to_csv verbose do_classification test_fn
+           else
+             test_fn in
          Utls.run_command ~debug:verbose
            (* '-b 1' forces probabilist predictions instead of raw scores *)
            (sprintf "liblinear-predict -b 1 %s %s %s %s"
-              test_fn model_fn preds_fn quiet_command);
+              tmp_csv_fn model_fn preds_fn quiet_command);
+         (if pairs && not verbose then Sys.remove tmp_csv_fn);
          preds_fn)
       (fun acc preds_fn -> preds_fn :: acc)
       [] model_fns in
@@ -248,7 +311,7 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
   if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
-      let true_labels = L.map is_active (Utls.lines_of_file test_fn) in
+      let true_labels = L.map (is_active pairs) (Utls.lines_of_file test_fn) in
       let pred_scores =
         L.map (fun l -> Scanf.sscanf l "%f" (fun x -> x))
           (Utls.lines_of_file output_fn) in
@@ -256,19 +319,13 @@ let prod_predict ncores verbose model_fns test_fn output_fn =
       ROC.auc score_labels in
     Log.info "AUC: %.3f" auc
 
-let prod_predict_regr verbose model_fn test_fn output_fn =
-  let quiet_option = if not verbose then "-q" else "" in
-  Utls.run_command ~debug:verbose
-    (sprintf "liblinear-predict %s %s %s %s"
-       quiet_option test_fn model_fn output_fn)
-
-let train_test ncores verbose cmd rng c w k train test =
-  if k <= 1 then single_train_test verbose cmd c w train test
+let train_test ncores verbose pairs cmd rng c w k train test =
+  if k <= 1 then single_train_test verbose pairs cmd c w train test
   else (* k > 1 *)
-    let bags = L.init k (fun _ -> balanced_bag rng train) in
+    let bags = L.init k (fun _ -> balanced_bag pairs rng train) in
     let k_score_labels =
       Parany.Parmap.parmap ncores (fun bag ->
-          single_train_test verbose cmd c w bag test
+          single_train_test verbose pairs cmd c w bag test
         ) bags in
     average_scores k k_score_labels
 
@@ -299,19 +356,20 @@ let cv_folds n l =
       loop acc' prev' xs in
   loop [] [] test_sets
 
-let nfolds_train_test ncores verbose cmd rng c w k n dataset =
+let nfolds_train_test ncores verbose pairs cmd rng c w k n dataset =
   assert(n > 1);
   L.flatten
     (L.map (fun (train, test) ->
-         train_test ncores verbose cmd rng c w k train test
+         train_test ncores verbose pairs cmd rng c w k train test
        ) (cv_folds n dataset))
 
-let train_test_maybe_nfolds nfolds verbose model_cmd rng c' w' k' train test =
+let train_test_maybe_nfolds
+    nfolds verbose pairs model_cmd rng c' w' k' train test =
   let one_cpu = 1 in
   if nfolds <= 1 then
-    train_test one_cpu verbose model_cmd rng c' w' k' train test
+    train_test one_cpu verbose pairs model_cmd rng c' w' k' train test
   else (* nfolds > 1 *)
-    nfolds_train_test one_cpu verbose model_cmd rng c' w' k' nfolds
+    nfolds_train_test one_cpu verbose pairs model_cmd rng c' w' k' nfolds
       (L.rev_append train test)
 
 (* find the best threshold to do classification instead of ranking;
@@ -330,22 +388,22 @@ let mcc_scan_proper ncores score_labels =
       ) mccs in
   (threshold, mcc_max)
 
-let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
+let mcc_scan ncores verbose pairs cmd rng c w k nfolds dataset =
   Utls.enforce (nfolds > 1) "Linwrap.mcc_scan: nfolds <= 1";
   let score_labels =
-    nfolds_train_test ncores verbose cmd rng c w k nfolds dataset in
+    nfolds_train_test ncores verbose pairs cmd rng c w k nfolds dataset in
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
   Log.info "threshold: %f %dxCV_MCC: %f" threshold nfolds mcc_max
 
 (* return the best parameter configuration found in the
    parameter configs list [cwks]:
    (best_c, best_w, best_k, best_auc) *)
-let optimize ncores verbose nfolds model_cmd rng train test cwks =
+let optimize ncores verbose pairs nfolds model_cmd rng train test cwks =
   Parany.Parmap.parfold ncores
     (fun ((c', w'), k') ->
        let score_labels =
          train_test_maybe_nfolds
-           nfolds verbose model_cmd rng c' w' k' train test in
+           nfolds verbose pairs model_cmd rng c' w' k' train test in
        let auc = ROC.auc score_labels in
        (c', w', k', auc))
     (fun
@@ -376,12 +434,12 @@ let log_R2 verbose e c r2 =
     end
 
 (* return the best parameter configuration (C, epsilon) found *)
-let optimize_regr verbose ncores es cs train test =
+let optimize_regr verbose pairs ncores es cs train test =
   let e_c_r2s =
     Parany.Parmap.parmap ncores (fun e ->
         L.map (fun c ->
             let act, preds =
-              single_train_test_regr verbose Discard e c train test in
+              single_train_test_regr verbose pairs Discard e c train test in
             let r2 = Cpm.RegrStats.r2 act preds in
             log_R2 verbose e c r2;
             (e, c, r2)
@@ -390,14 +448,14 @@ let optimize_regr verbose ncores es cs train test =
   best_r2 (L.map best_r2 e_c_r2s)
 
 (* like optimize_regr, but using NxCV *)
-let optimize_regr_nfolds ncores verbose nfolds es cs train =
+let optimize_regr_nfolds ncores verbose pairs nfolds es cs train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
   let e_c_r2s =
     Parany.Parmap.parmap ncores (fun e ->
         L.map (fun c ->
             let all_act_preds =
               L.map (fun (train', test') ->
-                  single_train_test_regr verbose Discard e c train' test'
+                  single_train_test_regr verbose pairs Discard e c train' test'
                 ) train_tests in
             let acts, preds =
               let xs, ys = L.split all_act_preds in
@@ -409,11 +467,11 @@ let optimize_regr_nfolds ncores verbose nfolds es cs train =
       ) es in
   best_r2 (L.map best_r2 e_c_r2s)
 
-let single_train_test_regr_nfolds verbose nfolds e c train =
+let single_train_test_regr_nfolds verbose pairs nfolds e c train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
   let all_act_preds =
     L.map (fun (train', test') ->
-        single_train_test_regr verbose Discard e c train' test'
+        single_train_test_regr verbose pairs Discard e c train' test'
       ) train_tests in
   let xs, ys = L.split all_act_preds in
   (L.concat xs, L.concat ys)
@@ -451,45 +509,21 @@ let () =
          "+1 2:0.100000 5:0.800000 123:0.100000");
   assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
 
-(* liblinear wants first feature index=1 instead of 0 *)
-let increment_feat_indexes features =
-  let buff = Buffer.create 1024 in
-  let feat_vals = S.split_on_char ' ' features in
-  L.iter (fun feat_val ->
-      Scanf.sscanf feat_val "%d:%d"
-        (fun feat value ->
-           bprintf buff " %d:%d" (feat + 1) value
-        )
-    ) feat_vals;
-  (* eprintf "len:%d features:%s\nres:%s\n%!"
-     (L.length feat_vals) features res; *)
-  Buffer.contents buff
-
-let atom_pairs_line_to_csv do_classification line =
-  (* Example for classification:
-   * "active<NAME>,pIC50,[feat:val;...]" -> "+1 feat:val ..."
-   * "<NAME>,pIC50,[feat:val;...]" -> "-1 feat:val ..." *)
-  match S.split_on_char ',' line with
-  | [name; pIC50; features] ->
-    let label_str =
-      if do_classification then
-        if S.starts_with name "active" then "+1" else "-1"
-      else (* regression *)
-        pIC50 in
-    assert(S.left features 1 = "[" && S.right features 1 = "]");
-    let semi_colon_to_space = function | ';' -> " "
-                                       | x -> (S.of_char x) in
-    let features' =
-      S.replace_chars semi_colon_to_space (S.chop ~l:1 ~r:1 features) in
-    sprintf "%s%s" label_str (increment_feat_indexes features')
-  | _ -> failwith ("Linwrap.atom_pairs_line_to_csv: cannot parse: " ^ line)
-
-(* unit tests for atom_pairs_line_to_csv *)
-let () =
-  let s1 = atom_pairs_line_to_csv true "activeMOL,1.0,[2:1;5:8;123:1]" in
-  Utls.enforce ("+1 3:1 6:8 124:1" = s1) s1;
-  let s2 = atom_pairs_line_to_csv false "activeMolecule,1.0,[2:1;5:8;123:1]" in
-  Utls.enforce ("1.0 3:1 6:8 124:1" = s2) s2
+let prod_predict_regr
+    verbose pairs do_classification model_fn test_fn output_fn =
+  let quiet_option = if not verbose then "-q" else "" in
+  if pairs then
+    begin
+      let tmp_csv_fn = pairs_to_csv verbose do_classification test_fn in
+      Utls.run_command ~debug:verbose
+        (sprintf "liblinear-predict %s %s %s %s"
+           quiet_option tmp_csv_fn model_fn output_fn);
+      (if not verbose then Sys.remove tmp_csv_fn)
+    end
+  else
+    Utls.run_command ~debug:verbose
+      (sprintf "liblinear-predict %s %s %s %s"
+         quiet_option test_fn model_fn output_fn)
 
 let decode_w_range = function
   | None -> L.frange 1.0 `To 10.0 10 (* default w range *)
@@ -527,13 +561,13 @@ let svr_epsilon_range (nsteps: int) (ys: float list): float list =
   Log.info "SVR epsilon range: [0:%g]; nsteps=%d" maxi nsteps;
   L.frange 0.0 `To maxi nsteps
 
-let epsilon_range maybe_epsilon maybe_esteps train =
+let epsilon_range pairs maybe_epsilon maybe_esteps train =
   match (maybe_epsilon, maybe_esteps) with
   | (Some _, Some _) -> failwith "Linwrap.epsilon_range: both e and esteps"
   | (None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
   | (Some e, None) -> [e]
   | (None, Some nsteps) ->
-    let train_pIC50s = L.map get_pIC50 train in
+    let train_pIC50s = L.map (get_pIC50 pairs) train in
     let mini, maxi = L.min_max ~cmp:BatFloat.compare train_pIC50s in
     let avg = L.favg train_pIC50s in
     let std = Utls.stddev train_pIC50s in
@@ -541,17 +575,22 @@ let epsilon_range maybe_epsilon maybe_esteps train =
       mini avg std maxi;
     svr_epsilon_range nsteps train_pIC50s
 
-let read_IC50s_from_train_fn train_fn =
-  Utls.map_on_lines_of_file train_fn get_pIC50
+let read_IC50s_from_train_fn pairs train_fn =
+  Utls.map_on_lines_of_file train_fn (get_pIC50 pairs)
 
 let read_IC50s_from_preds_fn preds_fn =
   Utls.map_on_lines_of_file preds_fn float_of_string
 
-let lines_of_file instance_wise_norm fn =
-  if instance_wise_norm then
-    Utls.map_on_lines_of_file fn normalize_line
+let lines_of_file pairs2csv do_classification instance_wise_norm fn =
+  let maybe_normalized_lines =
+    if instance_wise_norm then
+      Utls.map_on_lines_of_file fn normalize_line
+    else
+      Utls.lines_of_file fn in
+  if pairs2csv then
+    L.map (atom_pairs_line_to_csv do_classification) maybe_normalized_lines
   else
-    Utls.lines_of_file fn
+    maybe_normalized_lines
 
 let main () =
   Log.(set_log_level INFO);
@@ -601,7 +640,7 @@ let main () =
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
   let force = CLI.get_set_bool ["-f"] args in
-  let _pairs = CLI.get_set_bool ["--pairs"] args in
+  let pairs = CLI.get_set_bool ["--pairs"] args in
   Utls.enforce (not (will_save && will_load))
     ("Linwrap.main: cannot load and save at the same time");
   let model_cmd =
@@ -643,6 +682,7 @@ let main () =
   let do_regression =
     CLI.get_set_bool ["--regr"] args ||
     Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps in
+  let do_classification = not do_regression in
   let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
   let verbose = not quiet in
@@ -669,8 +709,9 @@ let main () =
   | Restore_from models_fn ->
     if do_regression then
       begin
-        prod_predict_regr verbose models_fn input_fn output_fn;
-        let acts = read_IC50s_from_train_fn input_fn in
+        prod_predict_regr
+          verbose pairs do_classification models_fn input_fn output_fn;
+        let acts = read_IC50s_from_train_fn pairs input_fn in
         let preds = read_IC50s_from_preds_fn output_fn in
         let r2 = Cpm.RegrStats.r2 acts preds in
         let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
@@ -679,21 +720,22 @@ let main () =
       end
     else
       let model_fns = Utls.lines_of_file models_fn in
-      prod_predict ncores verbose model_fns input_fn output_fn
+      prod_predict ncores verbose pairs model_fns input_fn output_fn
   | Save_into (_)
   | Discard ->
     match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
     | (None, None, None) ->
       begin
+        (* randomize lines *)
         let all_lines =
-          (* randomize lines *)
           L.shuffle ~state:rng
-            (lines_of_file instance_wise_norm input_fn) in
+            (lines_of_file pairs
+               do_classification instance_wise_norm input_fn) in
         if do_mcc_scan then
           begin match cs, ws, ks with
             | [c], [w], [k] ->
               (* we only try MCC scan for a model with known parameters *)
-              mcc_scan ncores verbose model_cmd rng c w k nfolds all_lines
+              mcc_scan ncores verbose pairs model_cmd rng c w k nfolds all_lines
             | _, _, _ ->
               failwith "Linwrap: --mcc-scan: some hyper params are still free"
           end
@@ -706,12 +748,13 @@ let main () =
           if do_regression then
             begin
               let best_e, best_c, best_r2 =
-                let epsilons = epsilon_range maybe_epsilon maybe_esteps train in
+                let epsilons =
+                  epsilon_range pairs maybe_epsilon maybe_esteps train in
                 if nfolds = 1 then
-                  optimize_regr verbose ncores epsilons cs train test
+                  optimize_regr verbose pairs ncores epsilons cs train test
                 else
                   optimize_regr_nfolds
-                    ncores verbose nfolds epsilons cs all_lines in
+                    ncores verbose pairs nfolds epsilons cs all_lines in
               let title_str =
                 sprintf "nfolds=%d e=%g C=%g R2=%.3f"
                   nfolds best_e best_c best_r2 in
@@ -719,31 +762,36 @@ let main () =
               let actual, preds =
                 if nfolds = 1 then
                   single_train_test_regr
-                    verbose model_cmd best_e best_c train test
+                    verbose pairs model_cmd best_e best_c train test
                 else
                   single_train_test_regr_nfolds
-                    verbose nfolds best_e best_c all_lines in
+                    verbose pairs nfolds best_e best_c all_lines in
               (if not no_gnuplot then
                  Gnuplot.regr_plot title_str actual preds)
             end
           else (* classification *)
             let _best_c, _best_w, _best_k, _best_auc =
-              optimize ncores verbose nfolds model_cmd rng train test cwks in
+              optimize ncores verbose pairs nfolds model_cmd rng train test cwks in
             ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
       begin
-        let train = lines_of_file instance_wise_norm train_fn in
+        let train =
+          lines_of_file pairs do_classification instance_wise_norm train_fn in
         let best_c, best_w, best_k, best_valid_AUC =
-          let valid = lines_of_file instance_wise_norm valid_fn in
-          optimize ncores verbose nfolds model_cmd rng train valid cwks in
+          let valid =
+            lines_of_file
+              pairs do_classification instance_wise_norm valid_fn in
+          optimize ncores verbose pairs nfolds model_cmd rng train valid cwks in
         Log.info "best (c, w, k) config: %f %f %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =
-          let test = lines_of_file instance_wise_norm test_fn in
+          let test =
+            lines_of_file
+              pairs do_classification instance_wise_norm test_fn in
           let score_labels =
             let one_cpu = 1 in
-            train_test one_cpu verbose model_cmd rng best_c best_w best_k
+            train_test one_cpu verbose pairs model_cmd rng best_c best_w best_k
               train test in
           ROC.auc score_labels in
         Log.info "tesAUC: %.3f" test_AUC
