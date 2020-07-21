@@ -33,14 +33,10 @@ end
 module ROC = Cpm.MakeROC.Make(SL)
 
 let pred_score_of_pred_line l =
-  (* try *)
-  Scanf.sscanf l "%d %f %f"
-    (fun _pred_label pred_act_p _pred_dec_p ->
-       pred_act_p
-    )
-(* with exn ->
-   *   let () = Log.fatal "Linwrap.pred_score_of_pred_line: cannot parse: %s" l in
-   *   raise exn *)
+  try Scanf.sscanf l "%d %f %f" (fun _label act_p _dec_p -> act_p)
+  with exn ->
+    (Log.fatal "Linwrap.pred_score_of_pred_line: cannot parse: %s" l;
+     raise exn)
 
 (* get one bootstrap sample of size 'nb_samples' using
    sampling with replacement *)
@@ -96,10 +92,10 @@ let single_train_test verbose pairs cmd c w train test =
     (* liblinear places the model in the current working dir... *)
     BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
+  let w_str = if w <> 1.0 then sprintf " -w1 %g" w else "" in
   Utls.run_command ~debug:verbose
-    (sprintf "head %s; liblinear-train -c %g -w1 %g -s 0 %s %s"
-       train_fn
-       c w train_fn quiet_command);
+    (sprintf "liblinear-train -c %g%s -s 0 %s %s"
+       c w_str train_fn quiet_command);
   (* test *)
   let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
   Utls.lines_to_file test_fn test;
@@ -107,8 +103,7 @@ let single_train_test verbose pairs cmd c w train test =
   (* compute AUC on test set *)
   Utls.run_command ~debug:verbose
     (* '-b 1' forces probabilist predictions instead of raw scores *)
-    (sprintf "head %s; liblinear-predict -b 1 %s %s %s %s"
-       test_fn
+    (sprintf "liblinear-predict -b 1 %s %s %s %s"
        test_fn model_fn preds_fn quiet_command);
   (* extract true labels *)
   let true_labels = L.map (is_active pairs) test in
@@ -116,15 +111,20 @@ let single_train_test verbose pairs cmd c w train test =
   let pred_lines = Utls.lines_of_file preds_fn in
   begin match cmd with
     | Restore_from _ -> assert(false) (* not dealt with here *)
-    | Discard -> L.iter (Sys.remove) [train_fn; test_fn; preds_fn; model_fn]
+    | Discard ->
+      if not verbose then
+        L.iter (Sys.remove) [train_fn; test_fn; preds_fn; model_fn]
     | Save_into models_fn ->
       (Utls.run_command (sprintf "echo %s >> %s" model_fn models_fn);
-       if not verbose then L.iter (Sys.remove) [train_fn; test_fn; preds_fn])
+       if not verbose then
+         L.iter (Sys.remove) [train_fn; test_fn; preds_fn])
   end;
   match pred_lines with
   | header :: preds ->
     begin
-      assert(header = "labels 1 -1");
+      (if header <> "labels 1 -1" then
+         (Utls.run_command ~debug:true (sprintf "head %s" preds_fn);
+          Log.warn "Linwrap.single_train_test: wrong header in preds_fn"));
       let pred_scores = L.map pred_score_of_pred_line preds in
       L.map SL.create (L.combine true_labels pred_scores)
     end
@@ -364,12 +364,12 @@ let nfolds_train_test ncores verbose pairs cmd rng c w k n dataset =
        ) (cv_folds n dataset))
 
 let train_test_maybe_nfolds
-    nfolds verbose pairs model_cmd rng c' w' k' train test =
+    nfolds verbose model_cmd rng c' w' k' train test =
   let one_cpu = 1 in
   if nfolds <= 1 then
-    train_test one_cpu verbose pairs model_cmd rng c' w' k' train test
+    train_test one_cpu verbose false model_cmd rng c' w' k' train test
   else (* nfolds > 1 *)
-    nfolds_train_test one_cpu verbose pairs model_cmd rng c' w' k' nfolds
+    nfolds_train_test one_cpu verbose false model_cmd rng c' w' k' nfolds
       (L.rev_append train test)
 
 (* find the best threshold to do classification instead of ranking;
@@ -398,12 +398,12 @@ let mcc_scan ncores verbose pairs cmd rng c w k nfolds dataset =
 (* return the best parameter configuration found in the
    parameter configs list [cwks]:
    (best_c, best_w, best_k, best_auc) *)
-let optimize ncores verbose pairs nfolds model_cmd rng train test cwks =
+let optimize ncores verbose nfolds model_cmd rng train test cwks =
   Parany.Parmap.parfold ncores
     (fun ((c', w'), k') ->
        let score_labels =
          train_test_maybe_nfolds
-           nfolds verbose pairs model_cmd rng c' w' k' train test in
+           nfolds verbose model_cmd rng c' w' k' train test in
        let auc = ROC.auc score_labels in
        (c', w', k', auc))
     (fun
@@ -770,7 +770,7 @@ let main () =
             end
           else (* classification *)
             let _best_c, _best_w, _best_k, _best_auc =
-              optimize ncores verbose pairs nfolds model_cmd rng train test cwks in
+              optimize ncores verbose nfolds model_cmd rng train test cwks in
             ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
@@ -781,7 +781,7 @@ let main () =
           let valid =
             lines_of_file
               pairs do_classification instance_wise_norm valid_fn in
-          optimize ncores verbose pairs nfolds model_cmd rng train valid cwks in
+          optimize ncores verbose nfolds model_cmd rng train valid cwks in
         Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =
@@ -790,7 +790,7 @@ let main () =
               pairs do_classification instance_wise_norm test_fn in
           let score_labels =
             let one_cpu = 1 in
-            train_test one_cpu verbose pairs model_cmd rng best_c best_w best_k
+            train_test one_cpu verbose false model_cmd rng best_c best_w best_k
               train test in
           ROC.auc score_labels in
         Log.info "tesAUC: %.3f" test_AUC
