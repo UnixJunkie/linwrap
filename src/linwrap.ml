@@ -17,6 +17,7 @@ module L = BatList
 module Log = Dolog.Log
 module Opt = BatOption
 module PHT = Dokeysto_camltc.Db_camltc.RW
+module S = BatString
 
 module SL = struct
   type t = bool * float (* (label, pred_score) *)
@@ -449,6 +450,26 @@ let () =
   assert(normalize_line "+1 2:1 5:8 123:1" =
          "+1 2:0.100000 5:0.800000 123:0.100000");
   assert(normalize_line "-1 2:3 4:7" = "-1 2:0.300000 4:0.700000")
+
+(* FBR: offset indexes by 1 because of liblinear *)
+let atom_pairs_line_to_csv do_classification line =
+  (* Example for classification:
+     * "active<NAME>,pIC50,[feat:val;...]" -> "+1 feat:val ..."
+     * "<NAME>,pIC50,[feat:val;...]" -> "-1 feat:val ..." *)
+  match S.split_on_char ',' line with
+  | [name; pIC50; features] ->
+    let label_str =
+      if do_classification then
+        if is_active name then "+1" else "-1"
+      else (* regression *)
+        pIC50 in
+    assert(S.left features 1 = "[" && S.right features 1 = "]");
+    let semi_colon_to_space = function | ';' -> " "
+                                       | x -> S.of_char x in
+    let features' =
+      S.replace_chars semi_colon_to_space (S.chop ~l:1 ~r:1 features) in
+    sprintf "%s %s" label_str features'
+  | _ -> failwith ("Linwrap.atom_pairs_line_to_csv: cannot parse: " ^ line)
 
 let decode_w_range = function
   | None -> L.frange 1.0 `To 10.0 10 (* default w range *)
