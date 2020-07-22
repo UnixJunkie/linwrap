@@ -388,10 +388,10 @@ let mcc_scan_proper ncores score_labels =
       ) mccs in
   (threshold, mcc_max)
 
-let mcc_scan ncores verbose pairs cmd rng c w k nfolds dataset =
+let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
   Utls.enforce (nfolds > 1) "Linwrap.mcc_scan: nfolds <= 1";
   let score_labels =
-    nfolds_train_test ncores verbose pairs cmd rng c w k nfolds dataset in
+    nfolds_train_test ncores verbose false cmd rng c w k nfolds dataset in
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
   Log.info "threshold: %g %dxCV_MCC: %g" threshold nfolds mcc_max
 
@@ -734,7 +734,7 @@ let main () =
           begin match cs, ws, ks with
             | [c], [w], [k] ->
               (* we only try MCC scan for a model with known parameters *)
-              mcc_scan ncores verbose pairs model_cmd rng c w k nfolds all_lines
+              mcc_scan ncores verbose model_cmd rng c w k nfolds all_lines
             | _, _, _ ->
               failwith "Linwrap: --mcc-scan: some hyper params are still free"
           end
