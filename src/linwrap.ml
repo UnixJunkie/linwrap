@@ -560,13 +560,13 @@ let svr_epsilon_range (nsteps: int) (ys: float list): float list =
   Log.info "SVR epsilon range: [0:%g]; nsteps=%d" maxi nsteps;
   L.frange 0.0 `To maxi nsteps
 
-let epsilon_range pairs maybe_epsilon maybe_esteps train =
+let epsilon_range maybe_epsilon maybe_esteps train =
   match (maybe_epsilon, maybe_esteps) with
   | (Some _, Some _) -> failwith "Linwrap.epsilon_range: both e and esteps"
   | (None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
   | (Some e, None) -> [e]
   | (None, Some nsteps) ->
-    let train_pIC50s = L.map (get_pIC50 pairs) train in
+    let train_pIC50s = L.map (get_pIC50 false) train in
     let mini, maxi = L.min_max ~cmp:BatFloat.compare train_pIC50s in
     let avg = L.favg train_pIC50s in
     let std = Utls.stddev train_pIC50s in
@@ -748,7 +748,7 @@ let main () =
             begin
               let best_e, best_c, best_r2 =
                 let epsilons =
-                  epsilon_range pairs maybe_epsilon maybe_esteps train in
+                  epsilon_range maybe_epsilon maybe_esteps train in
                 if nfolds = 1 then
                   optimize_regr verbose ncores epsilons cs train test
                 else
