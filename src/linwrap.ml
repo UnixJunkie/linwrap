@@ -307,7 +307,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
       done
     );
   PHT.close pht;
-  PHT.destroy pht;
+  (* PHT.destroy pht; (\* FBR: exception Failure("invalid operation") *\) *)
   if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
@@ -548,6 +548,15 @@ let decode_c_range (maybe_range_str: string option): float list =
     L.map float_of_string
       (BatString.split_on_char ',' range_str)
 
+let decode_k_range (maybe_range_str: string option): int list =
+  match maybe_range_str with
+  | None ->
+    (* default k range *)
+    [1; 2; 5; 10; 20; 50]
+  | Some range_str ->
+    L.map int_of_string
+      (BatString.split_on_char ',' range_str)
+
 (* (0 <= epsilon <= max_i(|y_i|)); according to:
    "Parameter Selection for Linear Support Vector Regression."
    Jui-Yang Hsia and Chih-Jen Lin.
@@ -627,6 +636,8 @@ let main () =
               (semantic=start:nsteps:stop)\n  \
               [--c-range <float,float,...>] explicit scan range for C \n  \
               (example='0.01,0.02,0.03')\n  \
+              [--k-range <int,int,...>] explicit scan range for k \n  \
+              (example='1,2,3,5,10')\n  \
               [--scan-k]: scan number of bags \
               (advice: optim. k rather than w)\n"
        Sys.argv.(0);
@@ -668,7 +679,8 @@ let main () =
   let scan_w = CLI.get_set_bool ["--scan-w"] args in
   let w_range_str = CLI.get_string_opt ["--w-range"] args in
   let c_range_str = CLI.get_string_opt ["--c-range"] args in
-  let k = CLI.get_int_def ["-k"] args 1 in
+  let k_range_str = CLI.get_string_opt ["--k-range"] args in
+  let fixed_k = CLI.get_int_opt ["-k"] args in
   let scan_k = CLI.get_set_bool ["--scan-k"] args in
   let do_mcc_scan = CLI.get_set_bool ["--mcc-scan"] args in
   let quiet = CLI.get_set_bool ["-q"] args in
@@ -701,8 +713,11 @@ let main () =
       | None -> [1.0] in
   (* scan k? *)
   let ks =
-    if scan_k then [1; 2; 5; 10; 20; 50; 100]
-    else [k] in
+    if scan_k || BatOption.is_some k_range_str then
+      decode_k_range k_range_str
+    else match fixed_k with
+      | Some k -> [k]
+      | None -> [1] in
   let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
   match model_cmd with
   | Restore_from models_fn ->
