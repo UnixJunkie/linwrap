@@ -109,6 +109,9 @@ let lines_to_file fn l =
       List.iter (fprintf out "%s\n") l
     )
 
+let list_to_file fn f l =
+  lines_to_file fn (L.map f l)
+
 (* all lines of file [fn], except those starting with [comment_prefix] *)
 let uncommented_lines_of_file
     (comment_prefix: string) (fn: filename): string list =
@@ -459,3 +462,8 @@ let file_nb_lines fn =
       assert(fn = fn');
       nb_lines
     )
+
+let list_filter_count p l =
+  let res = ref 0 in
+  L.iter (fun x -> if p x then incr res) l;
+  !res

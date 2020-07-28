@@ -31,6 +31,7 @@ module SL = struct
 end
 
 module ROC = Cpm.MakeROC.Make(SL)
+module Perfs = Perf.Make(SL)
 
 let pred_score_of_pred_line l =
   try Scanf.sscanf l "%d %f %f" (fun _label act_p _dec_p -> act_p)
@@ -403,13 +404,19 @@ let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
 (* return the best parameter configuration found in the
    parameter configs list [cwks]:
    (best_c, best_w, best_k, best_auc) *)
-let optimize ncores verbose nfolds model_cmd rng train test cwks =
+let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
   Parany.Parmap.parfold ncores
     (fun ((c', w'), k') ->
        let score_labels =
          train_test_maybe_nfolds
            nfolds verbose model_cmd rng c' w' k' train test in
        let auc = ROC.auc score_labels in
+       (if not noplot then
+          let title_str = sprintf "C=%g w=%g k=%d AUC=%.3f" c' w' k' auc in
+          let tmp_scores_fn = Fn.temp_file "linwrap_optimize_" ".txt" in
+          Perfs.evaluate_performance None None tmp_scores_fn title_str score_labels;
+          Sys.remove tmp_scores_fn
+       );
        (c', w', k', auc))
     (fun
       ((_c, _w, _k, prev_best_auc) as prev)
@@ -790,7 +797,7 @@ let main () =
             end
           else (* classification *)
             let _best_c, _best_w, _best_k, _best_auc =
-              optimize ncores verbose nfolds model_cmd rng train test cwks in
+              optimize ncores verbose no_gnuplot nfolds model_cmd rng train test cwks in
             ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
@@ -801,7 +808,7 @@ let main () =
           let valid =
             lines_of_file
               pairs do_classification instance_wise_norm valid_fn in
-          optimize ncores verbose nfolds model_cmd rng train valid cwks in
+          optimize ncores verbose no_gnuplot nfolds model_cmd rng train valid cwks in
         Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =

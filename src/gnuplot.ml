@@ -37,7 +37,7 @@ let regr_plot title actual preds =
   ignore(Sys.command (sprintf "gnuplot --persist %s" plot_fn))
 
 (* comes from RanKers Gnuplot module *)
-let roc_curve auc bedroc pr
+let roc_curve title_str
     score_labels_fn roc_curve_fn pr_curve_fn nb_actives nb_decoys ef_curve_fn =
   (* Utls.run_command
    *   (sprintf "cat %s | time croc-curve 2>/dev/null > %s"
@@ -45,8 +45,7 @@ let roc_curve auc bedroc pr
   let gnuplot_script_fn = Filename.temp_file "ranker_" ".gpl" in
   Utls.with_out_file gnuplot_script_fn (fun out ->
       fprintf out
-        "set title \"|A|:|D|=%d:%d AUC=%.3f \
-         BED=%.3f PR=%.3f\"\n\
+        "set title \"|A|:|D|=%d:%d %s\"\n\
          set xtics out nomirror\n\
          set ytics out nomirror\n\
          set size square\n\
@@ -65,7 +64,7 @@ let roc_curve auc bedroc pr
               ''   u 1:3 w lines t 'A_{%%}' , \
               ''   u 1:4 w lines t 'D_{%%}' , \
               f(x) lc rgb 'black' not, g(x) t 'p_a(m)'\n"
-        nb_actives nb_decoys auc bedroc pr
+        nb_actives nb_decoys title_str
         score_labels_fn roc_curve_fn ef_curve_fn pr_curve_fn
     );
   let gnuplot_log = Filename.temp_file "gnuplot_" ".log" in
