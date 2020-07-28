@@ -67,9 +67,6 @@ module Make (SL: Cpm.MakeROC.SCORE_LABEL) = struct
          let label = SL.get_label sl in
          sprintf "%f %d" score (Utls.int_of_bool label)
       ) for_auc;
-    let auc = ROC.fast_auc for_auc in
-    let bedroc = ROC.bedroc_auc for_auc in
-    (* let pr = ROC.pr_auc for_auc in *)
     (* compute ROC curve *)
     let curve_fn = match maybe_curve_fn with
       | None -> Fn.temp_file "rf_train_" ".roc"
@@ -88,6 +85,5 @@ module Make (SL: Cpm.MakeROC.SCORE_LABEL) = struct
        Gnuplot.roc_curve title_str
          scores_fn curve_fn pr_curve_fn nb_acts nb_decs ef_curve_fn
     );
-    Log.info "auc: %.3f bedroc: %.3f" auc bedroc
 
 end
