@@ -280,6 +280,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
               let k_str = string_of_int k in
               PHT.add pht k_str (Utls.marshal_to_string pred_act_p)
           );
+        Sys.remove pred_fn_01;
         (* accumulate *)
         L.iteri (fun i pred_fn ->
             Log.info "done: %d/%d" (i + 1) nb_models;
@@ -293,7 +294,8 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
                     Utls.unmarshal_from_string (PHT.find pht k_str) in
                   PHT.replace pht k_str
                     (Utls.marshal_to_string (pred_act_p +. prev_v))
-              )
+              );
+            Sys.remove pred_fn
           ) other_pred_fns;
         Log.info "done: %d/%d" nb_models nb_models
       end
@@ -307,7 +309,10 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
       done
     );
   PHT.close pht;
-  (* PHT.destroy pht; (\* FBR: exception Failure("invalid operation") *\) *)
+  (* PHT.destroy pht; *)
+  (* the previous line would raise Failure("invalid operation")
+   * so we just remove the file instead *)
+  Sys.remove tmp_pht_fn;
   if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
