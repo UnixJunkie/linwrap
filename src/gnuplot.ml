@@ -35,3 +35,39 @@ let regr_plot title actual preds =
   (* sprintf "'%s' using 1:2:($2-$3):($2+$3) w errorbars \
     *          t 'n=%d r2=%.2f', \\" data_fn nb_trees r2; *)
   ignore(Sys.command (sprintf "gnuplot --persist %s" plot_fn))
+
+(* comes from RanKers Gnuplot module *)
+let roc_curve auc bedroc pr
+    score_labels_fn roc_curve_fn pr_curve_fn nb_actives nb_decoys ef_curve_fn =
+  (* Utls.run_command
+   *   (sprintf "cat %s | time croc-curve 2>/dev/null > %s"
+   *      score_labels_fn roc_curve_fn); *)
+  let gnuplot_script_fn = Filename.temp_file "ranker_" ".gpl" in
+  Utls.with_out_file gnuplot_script_fn (fun out ->
+      fprintf out
+        "set title \"|A|:|D|=%d:%d AUC=%.3f \
+         BED=%.3f PR=%.3f\"\n\
+         set xtics out nomirror\n\
+         set ytics out nomirror\n\
+         set size square\n\
+         set xrange [0:1]\n\
+         set yrange [0:1]\n\
+         set xlabel 'ROC: FPR | p_a(m): score_{norm}'\n\
+         set ylabel 'TPR'\n\
+         set y2label 'p_a(m)'\n\
+         set key outside right\n\
+         f(x) = x\n\
+         g(x) = 1 / (1 + exp(a * x + b))\n\
+         fit g(x) '%s' using 1:2 via a, b\n\
+         plot '%s' u 1:2 w lines t 'ROC'    , \
+              '%s' u 1:2 w lines t '|A|/|D|', \
+              '%s' u 1:2 w lines t 'PR'     , \
+              ''   u 1:3 w lines t 'A_{%%}' , \
+              ''   u 1:4 w lines t 'D_{%%}' , \
+              f(x) lc rgb 'black' not, g(x) t 'p_a(m)'\n"
+        nb_actives nb_decoys auc bedroc pr
+        score_labels_fn roc_curve_fn ef_curve_fn pr_curve_fn
+    );
+  let gnuplot_log = Filename.temp_file "gnuplot_" ".log" in
+  Utls.run_command (sprintf "(gnuplot -persist %s 2>&1) > %s"
+                      gnuplot_script_fn gnuplot_log)
