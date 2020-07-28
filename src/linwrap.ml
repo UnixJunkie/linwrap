@@ -412,7 +412,11 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
            nfolds verbose model_cmd rng c' w' k' train test in
        let auc = ROC.auc score_labels in
        (if not noplot then
-          let title_str = sprintf "C=%g w=%g k=%d AUC=%.3f" c' w' k' auc in
+          let bed = ROC.bedroc_auc score_labels in
+          let aupr = ROC.pr_auc score_labels in
+          let title_str =
+            sprintf "C=%g w=%g k=%d AUC=%.3f BED=%.3f PR=%.3f"
+              c' w' k' auc bed aupr in
           let tmp_scores_fn = Fn.temp_file "linwrap_optimize_" ".txt" in
           Perfs.evaluate_performance None None tmp_scores_fn title_str score_labels;
           Sys.remove tmp_scores_fn
