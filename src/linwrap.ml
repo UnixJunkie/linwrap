@@ -616,6 +616,21 @@ let lines_of_file pairs2csv do_classification instance_wise_norm fn =
   else
     maybe_normalized_lines
 
+let count_active_decoys pairs fn =
+  let n_total =
+    int_of_string
+      (Utls.get_command_output (sprintf "cat %s | wc -l" fn)) in
+  let n_actives =
+    if pairs then
+      int_of_string
+        (Utls.get_command_output (sprintf "egrep -c '^active' %s" fn))
+    else
+      int_of_string
+        (Utls.get_command_output (sprintf "egrep -c '^+1 ' %s" fn)) in
+  let n_decoys = n_total - n_actives in
+  Log.info "%s: |A|/|D|=%d/%d" fn n_actives n_decoys;
+  (n_actives, n_decoys)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
