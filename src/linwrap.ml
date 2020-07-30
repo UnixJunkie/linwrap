@@ -540,18 +540,41 @@ let prod_predict_regr
       (sprintf "liblinear-predict %s %s %s %s"
          quiet_option test_fn model_fn output_fn)
 
-let decode_w_range = function
-  | None -> L.frange 1.0 `To 10.0 10 (* default w range *)
+let count_active_decoys pairs fn =
+  let n_total =
+    int_of_string
+      (Utls.get_command_output (sprintf "cat %s | wc -l" fn)) in
+  let n_actives =
+    if pairs then
+      int_of_string
+        (Utls.get_command_output (sprintf "egrep -c '^active' %s" fn))
+    else
+      int_of_string
+        (Utls.get_command_output (sprintf "egrep -c '^+1 ' %s" fn)) in
+  let n_decoys = n_total - n_actives in
+  Log.info "%s: |A|/|D|=%d/%d" fn n_actives n_decoys;
+  (n_actives, n_decoys)
+
+let decode_w_range pairs maybe_train_fn input_fn maybe_range_str =
+  match maybe_range_str with
+  | None ->
+    begin
+      let n_acts, n_decs =
+        match maybe_train_fn with
+        | Some train_fn -> count_active_decoys pairs train_fn
+        | None -> count_active_decoys pairs input_fn in
+      Utls.enforce (n_acts <= n_decs)
+        (sprintf "Linwrap.decode_w_range: n_acts (%d) > n_decs (%d)"
+           n_acts n_decs);
+      let max_weight = (float n_decs) /. (float n_acts) in
+      Log.info "max weight: %g" max_weight;
+      L.frange 1.0 `To max_weight 10 (* default w range *)
+    end
   | Some s ->
-    try
-      Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
-          L.frange start `To stop nsteps
-        )
-    with exn ->
-      begin
-        Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
-        raise exn
-      end
+    try Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
+        L.frange start `To stop nsteps)
+    with exn -> (Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
+                 raise exn)
 
 let decode_c_range (maybe_range_str: string option): float list =
   match maybe_range_str with
@@ -615,21 +638,6 @@ let lines_of_file pairs2csv do_classification instance_wise_norm fn =
     L.map (atom_pairs_line_to_csv do_classification) maybe_normalized_lines
   else
     maybe_normalized_lines
-
-let count_active_decoys pairs fn =
-  let n_total =
-    int_of_string
-      (Utls.get_command_output (sprintf "cat %s | wc -l" fn)) in
-  let n_actives =
-    if pairs then
-      int_of_string
-        (Utls.get_command_output (sprintf "egrep -c '^active' %s" fn))
-    else
-      int_of_string
-        (Utls.get_command_output (sprintf "egrep -c '^+1 ' %s" fn)) in
-  let n_decoys = n_total - n_actives in
-  Log.info "%s: |A|/|D|=%d/%d" fn n_actives n_decoys;
-  (n_actives, n_decoys)
 
 let main () =
   Log.(set_log_level INFO);
@@ -738,7 +746,7 @@ let main () =
   (* scan w? *)
   let ws =
     if scan_w || BatOption.is_some w_range_str then
-      decode_w_range w_range_str
+      decode_w_range pairs maybe_train_fn input_fn w_range_str
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
@@ -816,7 +824,8 @@ let main () =
             end
           else (* classification *)
             let _best_c, _best_w, _best_k, _best_auc =
-              optimize ncores verbose no_gnuplot nfolds model_cmd rng train test cwks in
+              optimize ncores verbose no_gnuplot nfolds
+                model_cmd rng train test cwks in
             ()
     end
     | (Some train_fn, Some valid_fn, Some test_fn) ->
@@ -827,7 +836,8 @@ let main () =
           let valid =
             lines_of_file
               pairs do_classification instance_wise_norm valid_fn in
-          optimize ncores verbose no_gnuplot nfolds model_cmd rng train valid cwks in
+          optimize ncores verbose no_gnuplot nfolds
+            model_cmd rng train valid cwks in
         Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
         Log.info "valAUC: %.3f" best_valid_AUC;
         let test_AUC =
