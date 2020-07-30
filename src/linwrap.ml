@@ -550,7 +550,7 @@ let count_active_decoys pairs fn =
         (Utls.get_command_output (sprintf "egrep -c '^active' %s" fn))
     else
       int_of_string
-        (Utls.get_command_output (sprintf "egrep -c '^+1 ' %s" fn)) in
+        (Utls.get_command_output (sprintf "egrep -c '^\\+1 ' %s" fn)) in
   let n_decoys = n_total - n_actives in
   Log.info "%s: |A|/|D|=%d/%d" fn n_actives n_decoys;
   (n_actives, n_decoys)
