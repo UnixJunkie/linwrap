@@ -654,7 +654,7 @@ let main () =
               [-w <float>]: fix w1\n  \
               [--no-plot]: no gnuplot\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
-              [-n <int>]: folds of cross validation\n  \
+              [{-n|--NxCV} <int>]: folds of cross validation\n  \
               [--mcc-scan]: MCC scan for a trained model (requires n>1)\n  \
                             also requires (c, w, k) to be known\n  \
               [--seed <int>]: fix random seed\n  \
@@ -709,7 +709,7 @@ let main () =
   let ncores = CLI.get_int_def ["-np"] args 1 in
   let train_p = CLI.get_float_def ["-p"] args 0.8 in
   assert(train_p >= 0.0 && train_p <= 1.0);
-  let nfolds = CLI.get_int_def ["-n"] args 1 in
+  let nfolds = CLI.get_int_def ["-n";"--NxCV"] args 1 in
   let rng = match CLI.get_int_opt ["--seed"] args with
     | None -> BatRandom.State.make_self_init ()
     | Some seed -> BatRandom.State.make [|seed|] in
