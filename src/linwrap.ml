@@ -36,7 +36,7 @@ module Perfs = Perf.Make(SL)
 let liblin_train, liblin_predict =
   if Utls.os_is_Mac_OS () then
     (* unspecific names chosen by brew liblinear packagers... *)
-    ("train", "precict")
+    ("train", "predict")
   else
     (* better names on Linux *)
     ("liblinear-train", "liblinear-predict")
