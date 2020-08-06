@@ -467,7 +467,7 @@ let min_max x y =
 
 (* <=> wc -l fn *)
 let file_nb_lines fn =
-  let res = get_command_output ("wc -l " ^ fn) in
+  let res = BatString.strip (get_command_output ("wc -l " ^ fn)) in
   Scanf.sscanf res "%d %s" (fun nb_lines fn' ->
       assert(fn = fn');
       nb_lines
