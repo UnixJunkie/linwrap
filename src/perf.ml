@@ -69,15 +69,15 @@ module Make (SL: Cpm.MakeROC.SCORE_LABEL) = struct
       ) for_auc;
     (* compute ROC curve *)
     let curve_fn = match maybe_curve_fn with
-      | None -> Fn.temp_file "rf_train_" ".roc"
+      | None -> Fn.temp_file ~temp_dir:"/tmp" "rf_train_" ".roc"
       | Some fn -> fn in
-    let pr_curve_fn = Fn.temp_file "rf_train_" ".pr" in
+    let pr_curve_fn = Fn.temp_file ~temp_dir:"/tmp" "rf_train_" ".pr" in
     let roc_curve = ROC.roc_curve for_auc in
     let pr_curve = ROC.pr_curve for_auc in
     Utls.list_to_file curve_fn (fun (x, y) -> sprintf "%f %f" x y) roc_curve;
     Utls.list_to_file pr_curve_fn (fun (x, y) -> sprintf "%f %f" x y) pr_curve;
     (* plot ROC curve *)
-    let ef_curve_fn = Fn.temp_file "rf_train_" ".ef" in
+    let ef_curve_fn = Fn.temp_file ~temp_dir:"/tmp" "rf_train_" ".ef" in
     let nb_acts, nb_decs, ef_curve = actives_portion_plot for_auc in
     Utls.list_to_file ef_curve_fn
       (fun (t, ef, ra, rd) -> sprintf "%f %f %f %f" t ef ra rd) ef_curve;
