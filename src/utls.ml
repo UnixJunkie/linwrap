@@ -1,7 +1,7 @@
 (* not using Batteries !!! Dont! I want fast IOs.
    Or we have to prefix many things with Legacy.XXX *)
 
-(* Copyright (C) 2018, Francois Berenger
+(* Copyright (C) 2020, Francois Berenger
 
    Yamanishi laboratory,
    Department of Bioscience and Bioinformatics,
@@ -11,6 +11,7 @@
 
 open Printf
 
+module Fn = Filename
 module L = BatList
 module Log = Dolog.Log
 
@@ -23,7 +24,8 @@ let tap f x =
 let fst3 (a, _, _) = a
 
 let create_tmp_filename () =
-  let res = Filename.temp_file "" (* no_prefix *) "" (* no_suffix *) in
+  let res = Fn.temp_file
+      ~temp_dir:"/tmp" "" (* no_prefix *) "" (* no_suffix *) in
   (* tap (Log.info "create_tmp_filename: %s") res; *)
   res
 
@@ -42,7 +44,8 @@ let with_out_file (fn: filename) (f: out_channel -> 'a): 'a =
   res
 
 let with_temp_out_file (f: filename -> 'a): 'a =
-  let temp_file = Filename.temp_file "" (* no_prefix *) "" (* no_suffix *) in
+  let temp_file =
+    Fn.temp_file ~temp_dir:"/tmp" "" (* no_prefix *) "" (* no_suffix *) in
   let res = f temp_file in
   Sys.remove temp_file;
   res
@@ -241,12 +244,12 @@ let find_command (exe: string) (env_var: string): string option =
                None)
 
 let filename_is_absolute fn =
-  not (Filename.is_relative fn)
+  not (Fn.is_relative fn)
 
 let relative_to_absolute fn =
-  if Filename.is_relative fn then
+  if Fn.is_relative fn then
     let cwd = Sys.getcwd () in
-    Filename.concat cwd fn
+    Fn.concat cwd fn
   else
     fn
 
@@ -257,6 +260,13 @@ let remove_string_prefix prfx str =
     BatString.tail str prfx_len
   else
     str
+
+let string_contains super sub =
+  try let _i = BatString.find super sub in true
+  with Not_found -> false
+
+let os_is_Mac_OS () =
+  string_contains (get_command_output "uname -a") "Darwin"
 
 let string_contains_non_binary_digit = Str.regexp "[^01]"
 
