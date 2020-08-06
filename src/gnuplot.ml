@@ -1,6 +1,7 @@
 
 open Printf
 
+module Fn = Filename
 module L = BatList
 module Stats = Cpm.RegrStats
 
@@ -9,13 +10,13 @@ let regr_plot title actual preds =
   let y_min, y_max = L.min_max ~cmp:BatFloat.compare preds in
   let xy_min = min x_min y_min in
   let xy_max = max x_max y_max in
-  let data_fn = Filename.temp_file "RFR_regr_data_" ".txt" in
+  let data_fn = Fn.temp_file ~temp_dir:"/tmp" "RFR_regr_data_" ".txt" in
   Utls.with_out_file data_fn (fun out ->
       L.iter (fun (x, y) ->
           fprintf out "%f %f\n" x y
         ) (L.combine actual preds)
     );
-  let plot_fn = Filename.temp_file "RFR_regr_plot_" ".gpl" in
+  let plot_fn = Fn.temp_file ~temp_dir:"/tmp" "RFR_regr_plot_" ".gpl" in
   Utls.lines_to_file plot_fn
     ["set xlabel 'actual'";
      "set ylabel 'predicted'";
@@ -42,7 +43,7 @@ let roc_curve title_str
   (* Utls.run_command
    *   (sprintf "cat %s | time croc-curve 2>/dev/null > %s"
    *      score_labels_fn roc_curve_fn); *)
-  let gnuplot_script_fn = Filename.temp_file "ranker_" ".gpl" in
+  let gnuplot_script_fn = Fn.temp_file ~temp_dir:"/tmp" "ranker_" ".gpl" in
   Utls.with_out_file gnuplot_script_fn (fun out ->
       fprintf out
         "set title \"|A|:|D|=%d:%d %s\"\n\
@@ -67,6 +68,6 @@ let roc_curve title_str
         nb_actives nb_decoys title_str
         score_labels_fn roc_curve_fn ef_curve_fn pr_curve_fn
     );
-  let gnuplot_log = Filename.temp_file "gnuplot_" ".log" in
+  let gnuplot_log = Fn.temp_file ~temp_dir:"/tmp" "gnuplot_" ".log" in
   Utls.run_command (sprintf "(gnuplot -persist %s 2>&1) > %s"
                       gnuplot_script_fn gnuplot_log)
