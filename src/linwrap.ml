@@ -33,6 +33,14 @@ end
 module ROC = Cpm.MakeROC.Make(SL)
 module Perfs = Perf.Make(SL)
 
+let liblin_train, liblin_predict =
+  if Utls.os_is_Mac_OS () then
+    (* unspecific names chosen by brew liblinear packagers... *)
+    ("train", "precict")
+  else
+    (* better names on Linux *)
+    ("liblinear-train", "liblinear-predict")
+
 let pred_score_of_pred_line l =
   try Scanf.sscanf l "%d %f %f" (fun _label act_p _dec_p -> act_p)
   with exn ->
@@ -87,7 +95,7 @@ let single_train_test verbose pairs cmd c w train test =
     if verbose then ""
     else "2>&1 > /dev/null" in
   (* train *)
-  let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
+  let train_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_train_" ".txt" in
   Utls.lines_to_file train_fn train;
   let replaced, model_fn =
     (* liblinear places the model in the current working dir... *)
@@ -95,17 +103,17 @@ let single_train_test verbose pairs cmd c w train test =
   assert(replaced);
   let w_str = if w <> 1.0 then sprintf " -w1 %g" w else "" in
   Utls.run_command ~debug:verbose
-    (sprintf "liblinear-train -c %g%s -s 0 %s %s"
-       c w_str train_fn quiet_command);
+    (sprintf "%s -c %g%s -s 0 %s %s"
+       liblin_train c w_str train_fn quiet_command);
   (* test *)
-  let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
+  let test_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_test_" ".txt" in
   Utls.lines_to_file test_fn test;
-  let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+  let preds_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_preds_" ".txt" in
   (* compute AUC on test set *)
   Utls.run_command ~debug:verbose
     (* '-b 1' forces probabilist predictions instead of raw scores *)
-    (sprintf "liblinear-predict -b 1 %s %s %s %s"
-       test_fn model_fn preds_fn quiet_command);
+    (sprintf "%s -b 1 %s %s %s %s"
+       liblin_predict test_fn model_fn preds_fn quiet_command);
   (* extract true labels *)
   let true_labels = L.map (is_active pairs) test in
   (* extact predicted scores *)
@@ -134,23 +142,23 @@ let single_train_test verbose pairs cmd c w train test =
 let single_train_test_regr verbose cmd e c train test =
   let quiet_option = if not verbose then "-q" else "" in
   (* train *)
-  let train_fn = Filename.temp_file "linwrap_train_" ".txt" in
+  let train_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_train_" ".txt" in
   Utls.lines_to_file train_fn train;
   let replaced, model_fn =
     (* liblinear places the model in the current working dir... *)
     BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
   Utls.run_command ~debug:verbose
-    (sprintf "liblinear-train %s -s 11 -c %g -p %g %s %s"
-       quiet_option c e train_fn model_fn);
+    (sprintf "%s %s -s 11 -c %g -p %g %s %s"
+       liblin_train quiet_option c e train_fn model_fn);
   (* test *)
-  let test_fn = Filename.temp_file "linwrap_test_" ".txt" in
+  let test_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_test_" ".txt" in
   Utls.lines_to_file test_fn test;
-  let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+  let preds_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_preds_" ".txt" in
   (* compute R2 on test set *)
   Utls.run_command ~debug:verbose
-    (sprintf "liblinear-predict %s %s %s %s"
-       quiet_option test_fn model_fn preds_fn);
+    (sprintf "%s %s %s %s %s"
+       liblin_predict quiet_option test_fn model_fn preds_fn);
   let actual_values = L.map (get_pIC50 false) test in
   let pred_lines = Utls.lines_of_file preds_fn in
   let nb_preds = L.length pred_lines in
@@ -226,7 +234,7 @@ let () =
   Utls.enforce ("1.0 3:1 6:8 124:1" = s2) s2
 
 let pairs_to_csv verbose do_classification pairs_fn =
-  let tmp_csv_fn = Fn.temp_file "linwrap_pairs2csv_" ".csv" in
+  let tmp_csv_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_pairs2csv_" ".csv" in
   (if verbose then Log.info "--pairs -> tmp CSV: %s" tmp_csv_fn);
   Utls.lines_to_file tmp_csv_fn
     (Utls.map_on_lines_of_file pairs_fn
@@ -240,7 +248,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   let pred_fns =
     Parany.Parmap.parfold ncores
       (fun model_fn ->
-         let preds_fn = Filename.temp_file "linwrap_preds_" ".txt" in
+         let preds_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_preds_" ".txt" in
          Log.info "preds_fn: %s" preds_fn;
          let tmp_csv_fn =
            if pairs then
@@ -250,8 +258,8 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
              test_fn in
          Utls.run_command ~debug:verbose
            (* '-b 1' forces probabilist predictions instead of raw scores *)
-           (sprintf "liblinear-predict -b 1 %s %s %s %s"
-              tmp_csv_fn model_fn preds_fn quiet_command);
+           (sprintf "%s -b 1 %s %s %s %s"
+              liblin_predict tmp_csv_fn model_fn preds_fn quiet_command);
          (if pairs && not verbose then Sys.remove tmp_csv_fn);
          preds_fn)
       (fun acc preds_fn -> preds_fn :: acc)
@@ -263,7 +271,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   Utls.enforce
     (L.for_all (fun fn -> card = (Utls.file_nb_lines fn)) pred_fns)
     "Linwrap.prod_predict: linwrap_preds_*.txt: different number of lines";
-  let tmp_pht_fn = Filename.temp_file "linwrap_" ".pht" in
+  let tmp_pht_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_" ".pht" in
   let pht = PHT.create tmp_pht_fn in
   Log.info "Persistent hash table file: %s" tmp_pht_fn;
   let nb_models = L.length pred_fns in
@@ -417,7 +425,7 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
           let title_str =
             sprintf "C=%g w=%g k=%d AUC=%.3f BED=%.3f PR=%.3f"
               c' w' k' auc bed aupr in
-          let tmp_scores_fn = Fn.temp_file "linwrap_optimize_" ".txt" in
+          let tmp_scores_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
           Perfs.evaluate_performance None None tmp_scores_fn title_str score_labels;
           Sys.remove tmp_scores_fn
        );
@@ -531,14 +539,14 @@ let prod_predict_regr
     begin
       let tmp_csv_fn = pairs_to_csv verbose do_classification test_fn in
       Utls.run_command ~debug:verbose
-        (sprintf "liblinear-predict %s %s %s %s"
-           quiet_option tmp_csv_fn model_fn output_fn);
+        (sprintf "%s %s %s %s %s"
+           liblin_predict quiet_option tmp_csv_fn model_fn output_fn);
       (if not verbose then Sys.remove tmp_csv_fn)
     end
   else
     Utls.run_command ~debug:verbose
-      (sprintf "liblinear-predict %s %s %s %s"
-         quiet_option test_fn model_fn output_fn)
+      (sprintf "%s %s %s %s %s"
+         liblin_predict quiet_option test_fn model_fn output_fn)
 
 let count_active_decoys pairs fn =
   let n_total =
