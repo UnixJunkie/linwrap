@@ -43,7 +43,7 @@ let roc_curve title_str
   (* Utls.run_command
    *   (sprintf "cat %s | time croc-curve 2>/dev/null > %s"
    *      score_labels_fn roc_curve_fn); *)
-  let gnuplot_script_fn = Fn.temp_file ~temp_dir:"/tmp" "ranker_" ".gpl" in
+  let gnuplot_script_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_" ".gpl" in
   Utls.with_out_file gnuplot_script_fn (fun out ->
       fprintf out
         "set title \"|A|:|D|=%d:%d %s\"\n\
