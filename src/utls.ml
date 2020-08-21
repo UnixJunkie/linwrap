@@ -467,11 +467,9 @@ let min_max x y =
 
 (* <=> wc -l fn *)
 let file_nb_lines fn =
-  let res = BatString.strip (get_command_output ("wc -l " ^ fn)) in
-  Scanf.sscanf res "%d %s" (fun nb_lines fn' ->
-      assert(fn = fn');
-      nb_lines
-    )
+  let count = ref 0 in
+  iter_on_lines_of_file fn (fun _line -> incr count);
+  !count
 
 let list_filter_count p l =
   let res = ref 0 in
