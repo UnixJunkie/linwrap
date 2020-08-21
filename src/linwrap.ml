@@ -58,7 +58,7 @@ let array_bootstrap_sample rng nb_samples a =
     )
 
 let is_active pairs s =
-  BatString.starts_with s (if pairs then "active" else "+1 ")
+  S.starts_with s (if pairs then "active" else "+1 ")
 
 let get_pIC50 pairs s =
   if pairs then
@@ -99,7 +99,7 @@ let single_train_test verbose pairs cmd c w train test =
   Utls.lines_to_file train_fn train;
   let replaced, model_fn =
     (* liblinear places the model in the current working dir... *)
-    BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
+    S.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
   let w_str = if w <> 1.0 then sprintf " -w1 %g" w else "" in
   Utls.run_command ~debug:verbose
@@ -146,7 +146,7 @@ let single_train_test_regr verbose cmd e c train test =
   Utls.lines_to_file train_fn train;
   let replaced, model_fn =
     (* liblinear places the model in the current working dir... *)
-    BatString.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
+    S.replace ~str:(train_fn ^ ".model") ~sub:"/tmp/" ~by:"" in
   assert(replaced);
   Utls.run_command ~debug:verbose
     (sprintf "%s %s -s 11 -c %g -p %g %s %s"
@@ -249,7 +249,8 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   let pred_fns =
     Parany.Parmap.parfold ncores
       (fun model_fn ->
-         let preds_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_preds_" ".txt" in
+         let preds_fn =
+           Fn.temp_file ~temp_dir:"/tmp" "linwrap_preds_" ".txt" in
          Log.info "preds_fn: %s" preds_fn;
          let tmp_csv_fn =
            if pairs then
@@ -314,7 +315,8 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   Utls.with_out_file output_fn (fun out ->
       for i = 1 to nb_rows do
         let k_str = string_of_int i in
-        let sum_preds: float = Utls.unmarshal_from_string (PHT.find pht k_str) in
+        let sum_preds: float =
+          Utls.unmarshal_from_string (PHT.find pht k_str) in
         fprintf out "%g\n" (sum_preds /. (float nb_models))
       done
     );
@@ -426,8 +428,10 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
           let title_str =
             sprintf "C=%g w=%g k=%d AUC=%.3f BED=%.3f PR=%.3f"
               c' w' k' auc bed aupr in
-          let tmp_scores_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
-          Perfs.evaluate_performance None None tmp_scores_fn title_str score_labels;
+          let tmp_scores_fn =
+            Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
+          Perfs.evaluate_performance
+            None None tmp_scores_fn title_str score_labels;
           Sys.remove tmp_scores_fn
        );
        (c', w', k', auc))
@@ -503,7 +507,7 @@ let single_train_test_regr_nfolds verbose nfolds e c train =
 
 (* instance-wise normalization *)
 let normalize_line l =
-  let tokens = BatString.split_on_char ' ' l in
+  let tokens = S.split_on_char ' ' l in
   match tokens with
   | [] -> failwith "Linwrap.normalize_line: empty line"
   | [_label] -> failwith ("Linwrap.normalize_line: no features: " ^ l)
@@ -605,7 +609,7 @@ let decode_c_range (maybe_range_str: string option): float list =
      10.; 20.; 50.]
   | Some range_str ->
     L.map float_of_string
-      (BatString.split_on_char ',' range_str)
+      (S.split_on_char ',' range_str)
 
 let decode_k_range (maybe_range_str: string option): int list =
   match maybe_range_str with
@@ -614,7 +618,7 @@ let decode_k_range (maybe_range_str: string option): int list =
     [1; 2; 5; 10; 20; 50]
   | Some range_str ->
     L.map int_of_string
-      (BatString.split_on_char ',' range_str)
+      (S.split_on_char ',' range_str)
 
 (* (0 <= epsilon <= max_i(|y_i|)); according to:
    "Parameter Selection for Linear Support Vector Regression."
@@ -663,6 +667,16 @@ let lines_of_file pairs2csv do_classification instance_wise_norm fn =
   else
     maybe_normalized_lines
 
+(* uncompress file if needed
+   return (uncompressed_fn, was_compressed) *)
+let maybe_uncompress fn =
+  if S.ends_with fn ".gz" then
+    let plain = S.rchop ~n:3 fn in
+    Utls.run_command (sprintf "gunzip -f -k %s" fn);
+    (plain, true)
+  else
+    (fn, false)
+
 let main () =
   Log.(set_log_level INFO);
   Log.color_on ();
@@ -705,7 +719,9 @@ let main () =
               (advice: optim. k rather than w)\n"
        Sys.argv.(0);
      exit 1);
-  let input_fn = CLI.get_string_def ["-i"] args "/dev/null" in
+  let input_fn, was_compressed =
+    let input_fn' = CLI.get_string_def ["-i"] args "/dev/null" in
+    maybe_uncompress input_fn' in
   let maybe_train_fn = CLI.get_string_opt ["--train"] args in
   let maybe_valid_fn = CLI.get_string_opt ["--valid"] args in
   let maybe_test_fn = CLI.get_string_opt ["--test"] args in
@@ -782,100 +798,108 @@ let main () =
       | Some k -> [k]
       | None -> [1] in
   let cwks = L.cartesian_product (L.cartesian_product cs ws) ks in
-  match model_cmd with
-  | Restore_from models_fn ->
-    if do_regression then
-      begin
-        prod_predict_regr
-          verbose pairs do_classification models_fn input_fn output_fn;
-        let acts = read_IC50s_from_train_fn pairs input_fn in
-        let preds = read_IC50s_from_preds_fn pairs output_fn in
-        let r2 = Cpm.RegrStats.r2 acts preds in
-        let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
-        (if not no_gnuplot then
-           Gnuplot.regr_plot title_str acts preds)
-      end
-    else
-      let model_fns = Utls.lines_of_file models_fn in
-      prod_predict ncores verbose pairs model_fns input_fn output_fn
-  | Save_into (_)
-  | Discard ->
-    match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
-    | (None, None, None) ->
-      begin
-        (* randomize lines *)
-        let all_lines =
-          L.shuffle ~state:rng
-            (lines_of_file pairs
-               do_classification instance_wise_norm input_fn) in
-        if do_mcc_scan then
-          begin match cs, ws, ks with
-            | [c], [w], [k] ->
-              (* we only try MCC scan for a model with known parameters *)
-              mcc_scan ncores verbose model_cmd rng c w k nfolds all_lines
-            | _, _, _ ->
-              failwith "Linwrap: --mcc-scan: some hyper params are still free"
-          end
-        else
-          let nb_lines = L.length all_lines in
-          (* partition *)
-          let train_card =
-            BatFloat.round_to_int (train_p *. (float nb_lines)) in
-          let train, test = L.takedrop train_card all_lines in
-          if do_regression then
-            begin
-              let best_e, best_c, best_r2 =
-                let epsilons =
-                  epsilon_range maybe_epsilon maybe_esteps train in
-                if nfolds = 1 then
-                  optimize_regr verbose ncores epsilons cs train test
-                else
-                  optimize_regr_nfolds
-                    ncores verbose nfolds epsilons cs all_lines in
-              let title_str =
-                sprintf "nfolds=%d e=%g C=%g R2=%.3f"
-                  nfolds best_e best_c best_r2 in
-              Log.info "%s" title_str;
-              let actual, preds =
-                if nfolds = 1 then
-                  single_train_test_regr
-                    verbose model_cmd best_e best_c train test
-                else
-                  single_train_test_regr_nfolds
-                    verbose nfolds best_e best_c all_lines in
-              (if not no_gnuplot then
-                 Gnuplot.regr_plot title_str actual preds)
+  begin match model_cmd with
+    | Restore_from models_fn ->
+      if do_regression then
+        begin
+          prod_predict_regr
+            verbose pairs do_classification models_fn input_fn output_fn;
+          let acts = read_IC50s_from_train_fn pairs input_fn in
+          let preds = read_IC50s_from_preds_fn pairs output_fn in
+          let r2 = Cpm.RegrStats.r2 acts preds in
+          let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
+          (if not no_gnuplot then
+             Gnuplot.regr_plot title_str acts preds)
+        end
+      else
+        let model_fns = Utls.lines_of_file models_fn in
+        prod_predict ncores verbose pairs model_fns input_fn output_fn
+    | Save_into (_)
+    | Discard ->
+      match maybe_train_fn, maybe_valid_fn, maybe_test_fn with
+      | (None, None, None) ->
+        begin
+          (* randomize lines *)
+          let all_lines =
+            L.shuffle ~state:rng
+              (lines_of_file pairs
+                 do_classification instance_wise_norm input_fn) in
+          if do_mcc_scan then
+            begin match cs, ws, ks with
+              | [c], [w], [k] ->
+                (* we only try MCC scan for a model with known parameters *)
+                mcc_scan ncores verbose model_cmd rng c w k nfolds all_lines
+              | _, _, _ ->
+                failwith
+                  "Linwrap: --mcc-scan: some hyper params are still free"
             end
-          else (* classification *)
-            let _best_c, _best_w, _best_k, _best_auc =
-              optimize ncores verbose no_gnuplot nfolds
-                model_cmd rng train test cwks in
-            ()
-    end
-    | (Some train_fn, Some valid_fn, Some test_fn) ->
-      begin
-        let train =
-          lines_of_file pairs do_classification instance_wise_norm train_fn in
-        let best_c, best_w, best_k, best_valid_AUC =
-          let valid =
+          else
+            let nb_lines = L.length all_lines in
+            (* partition *)
+            let train_card =
+              BatFloat.round_to_int (train_p *. (float nb_lines)) in
+            let train, test = L.takedrop train_card all_lines in
+            if do_regression then
+              begin
+                let best_e, best_c, best_r2 =
+                  let epsilons =
+                    epsilon_range maybe_epsilon maybe_esteps train in
+                  if nfolds = 1 then
+                    optimize_regr verbose ncores epsilons cs train test
+                  else
+                    optimize_regr_nfolds
+                      ncores verbose nfolds epsilons cs all_lines in
+                let title_str =
+                  sprintf "nfolds=%d e=%g C=%g R2=%.3f"
+                    nfolds best_e best_c best_r2 in
+                Log.info "%s" title_str;
+                let actual, preds =
+                  if nfolds = 1 then
+                    single_train_test_regr
+                      verbose model_cmd best_e best_c train test
+                  else
+                    single_train_test_regr_nfolds
+                      verbose nfolds best_e best_c all_lines in
+                (if not no_gnuplot then
+                   Gnuplot.regr_plot title_str actual preds)
+              end
+            else (* classification *)
+              let _best_c, _best_w, _best_k, _best_auc =
+                optimize ncores verbose no_gnuplot nfolds
+                  model_cmd rng train test cwks in
+              ()
+        end
+      | (Some train_fn, Some valid_fn, Some test_fn) ->
+        begin
+          let train =
             lines_of_file
-              pairs do_classification instance_wise_norm valid_fn in
-          optimize ncores verbose no_gnuplot nfolds
-            model_cmd rng train valid cwks in
-        Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
-        Log.info "valAUC: %.3f" best_valid_AUC;
-        let test_AUC =
-          let test =
-            lines_of_file
-              pairs do_classification instance_wise_norm test_fn in
-          let score_labels =
-            let one_cpu = 1 in
-            train_test one_cpu verbose false model_cmd rng best_c best_w best_k
-              train test in
-          ROC.auc score_labels in
-        Log.info "tesAUC: %.3f" test_AUC
-      end
-    | _ -> failwith
-             "Linwrap: --train, --valid and --test: provide all three or none"
+              pairs do_classification instance_wise_norm train_fn in
+          let best_c, best_w, best_k, best_valid_AUC =
+            let valid =
+              lines_of_file
+                pairs do_classification instance_wise_norm valid_fn in
+            optimize ncores verbose no_gnuplot nfolds
+              model_cmd rng train valid cwks in
+          Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
+          Log.info "valAUC: %.3f" best_valid_AUC;
+          let test_AUC =
+            let test =
+              lines_of_file
+                pairs do_classification instance_wise_norm test_fn in
+            let score_labels =
+              let one_cpu = 1 in
+              train_test
+                one_cpu verbose false model_cmd rng best_c best_w best_k
+                train test in
+            ROC.auc score_labels in
+          Log.info "tesAUC: %.3f" test_AUC
+        end
+      | _ ->
+        failwith "Linwrap: --train, --valid and --test: \
+                  provide all three or none"
+  end;
+  if was_compressed then
+    (* don't keep around the uncompressed version *)
+    Sys.remove input_fn
 
 let () = main ()
