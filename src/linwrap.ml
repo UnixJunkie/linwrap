@@ -234,7 +234,8 @@ let () =
   Utls.enforce ("1.0 3:1 6:8 124:1" = s2) s2
 
 let pairs_to_csv verbose do_classification pairs_fn =
-  let tmp_csv_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_pairs2csv_" ".csv" in
+  let tmp_csv_fn =
+    Fn.temp_file ~temp_dir:"/tmp" "linwrap_pairs2csv_" ".csv" in
   (if verbose then Log.info "--pairs -> tmp CSV: %s" tmp_csv_fn);
   Utls.lines_to_file tmp_csv_fn
     (Utls.map_on_lines_of_file pairs_fn
@@ -541,7 +542,18 @@ let prod_predict_regr
       Utls.run_command ~debug:verbose
         (sprintf "%s %s %s %s %s"
            liblin_predict quiet_option tmp_csv_fn model_fn output_fn);
-      (if not verbose then Sys.remove tmp_csv_fn)
+      (* output_fn only holds floats now.
+         the following prepend each score by the corresp. molecule name
+         to reach the following line format:
+         ^mol_name\tscore$ *)
+      let tmp_names_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_" ".names" in
+      (* extract mol. names: in *.AP files, this is the first field *)
+      Utls.run_command ~debug:verbose
+        (sprintf "cut -d',' -f1 %s > %s" test_fn tmp_names_fn);
+      Utls.run_command ~debug:verbose
+        (sprintf "paste %s %s > %s; mv %s %s"
+           tmp_names_fn output_fn tmp_csv_fn tmp_csv_fn output_fn);
+      (if not verbose then L.iter Sys.remove [tmp_csv_fn; tmp_names_fn])
     end
   else
     Utls.run_command ~debug:verbose
@@ -633,8 +645,12 @@ let epsilon_range maybe_epsilon maybe_esteps train =
 let read_IC50s_from_train_fn pairs train_fn =
   Utls.map_on_lines_of_file train_fn (get_pIC50 pairs)
 
-let read_IC50s_from_preds_fn preds_fn =
-  Utls.map_on_lines_of_file preds_fn float_of_string
+let read_IC50s_from_preds_fn pairs preds_fn =
+  if pairs then
+    Utls.map_on_lines_of_file preds_fn
+      (fun line -> Scanf.sscanf line "%s@\t%f" (fun _name score -> score))
+  else
+    Utls.map_on_lines_of_file preds_fn float_of_string
 
 let lines_of_file pairs2csv do_classification instance_wise_norm fn =
   let maybe_normalized_lines =
@@ -773,7 +789,7 @@ let main () =
         prod_predict_regr
           verbose pairs do_classification models_fn input_fn output_fn;
         let acts = read_IC50s_from_train_fn pairs input_fn in
-        let preds = read_IC50s_from_preds_fn output_fn in
+        let preds = read_IC50s_from_preds_fn pairs output_fn in
         let r2 = Cpm.RegrStats.r2 acts preds in
         let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
         (if not no_gnuplot then
