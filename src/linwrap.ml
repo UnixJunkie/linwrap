@@ -454,13 +454,10 @@ let best_r2 l =
                 if best_r2 >= curr_r2 then best else new_best
               ) (0.0, 0.0, 0.0) l
 
-let log_R2 verbose e c r2 =
-  if verbose then
-    begin
-      if r2 < 0.3 then Log.error "(e, C, R2) = %g %g %.3f" e c r2
-      else if r2 < 0.5 then Log.warn "(e, C, R2) = %g %g %.3f" e c r2
-      else Log.info "(e, C, R2) = %g %g %.3f" e c r2
-    end
+let log_R2 e c r2 =
+  if r2 < 0.3 then Log.error "(e, C, R2) = %g %g %.3f" e c r2
+  else if r2 < 0.5 then Log.warn "(e, C, R2) = %g %g %.3f" e c r2
+  else Log.info "(e, C, R2) = %g %g %.3f" e c r2
 
 (* return the best parameter configuration (C, epsilon) found *)
 let optimize_regr verbose ncores es cs train test =
@@ -470,7 +467,7 @@ let optimize_regr verbose ncores es cs train test =
             let act, preds =
               single_train_test_regr verbose Discard e c train test in
             let r2 = Cpm.RegrStats.r2 act preds in
-            log_R2 verbose e c r2;
+            log_R2 e c r2;
             (e, c, r2)
           ) cs
       ) es in
@@ -490,7 +487,7 @@ let optimize_regr_nfolds ncores verbose nfolds es cs train =
               let xs, ys = L.split all_act_preds in
               (L.concat xs, L.concat ys) in
             let r2 = Cpm.RegrStats.r2 acts preds in
-            log_R2 verbose e c r2;
+            log_R2 e c r2;
             (e, c, r2)
           ) cs
       ) es in
