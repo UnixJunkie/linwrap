@@ -598,7 +598,8 @@ let decode_w_range pairs maybe_train_fn input_fn maybe_range_str =
 let decode_c_range (maybe_range_str: string option): float list =
   match maybe_range_str with
   | None -> (* default C range *)
-    [0.01; 0.02; 0.05;
+    [0.001; 0.002; 0.005;
+     0.01; 0.02; 0.05;
      0.1; 0.2; 0.5;
      1.; 2.; 5.;
      10.; 20.; 50.]
