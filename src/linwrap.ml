@@ -461,37 +461,35 @@ let log_R2 e c r2 =
 
 (* return the best parameter configuration (C, epsilon) found *)
 let optimize_regr verbose ncores es cs train test =
+  let ecs = L.cartesian_product es cs in
   let e_c_r2s =
-    Parany.Parmap.parmap ncores (fun e ->
-        L.map (fun c ->
-            let act, preds =
-              single_train_test_regr verbose Discard e c train test in
-            let r2 = Cpm.RegrStats.r2 act preds in
-            log_R2 e c r2;
-            (e, c, r2)
-          ) cs
-      ) es in
-  best_r2 (L.map best_r2 e_c_r2s)
+    Parany.Parmap.parmap ncores (fun (e, c) ->
+        let act, preds =
+          single_train_test_regr verbose Discard e c train test in
+        let r2 = Cpm.RegrStats.r2 act preds in
+        log_R2 e c r2;
+        (e, c, r2)
+      ) ecs in
+  best_r2 e_c_r2s
 
 (* like optimize_regr, but using NxCV *)
 let optimize_regr_nfolds ncores verbose nfolds es cs train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
+  let ecs = L.cartesian_product es cs in
   let e_c_r2s =
-    Parany.Parmap.parmap ncores (fun e ->
-        L.map (fun c ->
-            let all_act_preds =
-              L.map (fun (train', test') ->
-                  single_train_test_regr verbose Discard e c train' test'
-                ) train_tests in
-            let acts, preds =
-              let xs, ys = L.split all_act_preds in
-              (L.concat xs, L.concat ys) in
-            let r2 = Cpm.RegrStats.r2 acts preds in
-            log_R2 e c r2;
-            (e, c, r2)
-          ) cs
-      ) es in
-  best_r2 (L.map best_r2 e_c_r2s)
+    Parany.Parmap.parmap ncores (fun (e, c) ->
+        let all_act_preds =
+          L.map (fun (train', test') ->
+              single_train_test_regr verbose Discard e c train' test'
+            ) train_tests in
+        let acts, preds =
+          let xs, ys = L.split all_act_preds in
+          (L.concat xs, L.concat ys) in
+        let r2 = Cpm.RegrStats.r2 acts preds in
+        log_R2 e c r2;
+        (e, c, r2)
+      ) ecs in
+  best_r2 e_c_r2s
 
 let single_train_test_regr_nfolds verbose nfolds e c train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
