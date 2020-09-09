@@ -8,10 +8,10 @@ module Stats = Cpm.RegrStats
 
 (* negate should be set to true for docking scores
    (i.e. best score is most negative) *)
-let lorenz_curve negate_scores (pred_reals: (float * float) list) =
+let lorenz_curve negate (pred_reals: (float * float) list) =
   (* sort by increasing predicted value *)
   let pred_reals =
-    if negate_scores then
+    if negate then
       L.map (fun (score, value) -> (-.score, -.value)) pred_reals
     else pred_reals in
   let cmp_scores (a, _b) (c, _d) =
@@ -43,15 +43,14 @@ let lorenz_curve negate_scores (pred_reals: (float * float) list) =
 
 (* G_I = A / (A + B) *)
 let gini_index lorenz_curve_points =
-  (* I don't really compute areas;
-     but the result should be equal to the one using areas *)
+  (* I don't really compute areas, but the result
+     should approximate very well the calculation using areas *)
   let a_tot = ref 0.0 in
   let b_tot = ref 0.0 in
   L.iter (fun (x, y) ->
       a_tot := !a_tot +. (x -. y);
       b_tot := !b_tot +. y
     ) lorenz_curve_points;
-  Log.info "0.5 = A + B ~= %.3f" (!a_tot +. !b_tot); (* debug *)
   !a_tot /. (!a_tot +. !b_tot)
 
 let regr_plot title actual preds =
