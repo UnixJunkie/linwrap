@@ -863,7 +863,7 @@ let main () =
                 Log.info "%s" title_str;
                 if not no_gnuplot then
                   (Gnuplot.regr_plot title_str actual preds;
-                   Gnuplot.lorenz_plot title_str pred_acts)
+                   Gnuplot.lorenz_plot title_str lorenz_curve)
               end
             else (* classification *)
               let _best_c, _best_w, _best_k, _best_auc =
