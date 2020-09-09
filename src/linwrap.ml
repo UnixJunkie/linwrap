@@ -560,9 +560,7 @@ let prod_predict_regr
          liblin_predict quiet_option test_fn model_fn output_fn)
 
 let count_active_decoys pairs fn =
-  let n_total =
-    int_of_string
-      (Utls.get_command_output (sprintf "cat %s | wc -l" fn)) in
+  let n_total = Utls.file_nb_lines fn in
   let n_actives =
     if pairs then
       int_of_string
