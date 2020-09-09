@@ -596,6 +596,16 @@ let decode_w_range pairs maybe_train_fn input_fn maybe_range_str =
     with exn -> (Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
                  raise exn)
 
+let decode_e_range maybe_range_str = match maybe_range_str with
+  | None -> None
+  | Some s ->
+    try
+      Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
+          Some (L.frange start `To stop nsteps)
+        )
+    with exn -> (Log.fatal "Linwrap.decode_e_range: invalid string: %s"  s;
+                 raise exn)
+
 let decode_c_range (maybe_range_str: string option): float list =
   match maybe_range_str with
   | None -> (* default C range *)
@@ -629,12 +639,14 @@ let svr_epsilon_range (nsteps: int) (ys: float list): float list =
   Log.info "SVR epsilon range: [0:%g]; nsteps=%d" maxi nsteps;
   L.frange 0.0 `To maxi nsteps
 
-let epsilon_range maybe_epsilon maybe_esteps train =
-  match (maybe_epsilon, maybe_esteps) with
-  | (Some _, Some _) -> failwith "Linwrap.epsilon_range: both e and esteps"
-  | (None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
-  | (Some e, None) -> [e]
-  | (None, Some nsteps) ->
+let epsilon_range maybe_epsilon maybe_esteps maybe_es train =
+  match (maybe_epsilon, maybe_esteps, maybe_es) with
+  | (None, None, Some es) -> es
+  | (_, _, Some _) -> failwith "Linwrap.epsilon_range: (e or esteps) and --e-range"
+  | (Some _, Some _, None) -> failwith "Linwrap.epsilon_range: both e and esteps"
+  | (None, None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
+  | (Some e, None, None) -> [e]
+  | (None, Some nsteps, None) ->
     let train_pIC50s = L.map (get_pIC50 false) train in
     let mini, maxi = L.min_max ~cmp:BatFloat.compare train_pIC50s in
     let avg = L.favg train_pIC50s in
@@ -708,6 +720,8 @@ let main () =
               [--scan-w]: scan weight to counter class imbalance\n  \
               [--w-range <float>:<int>:<float>]: specific range for w\n  \
               (semantic=start:nsteps:stop)\n  \
+              [--e-range <float>:<int>:<float>]: specific range for e\n  \
+              (semantic=start:nsteps:stop)\n  \
               [--c-range <float,float,...>] explicit scan range for C \n  \
               (example='0.01,0.02,0.03')\n  \
               [--k-range <int,int,...>] explicit scan range for k \n  \
@@ -757,6 +771,7 @@ let main () =
   let fixed_c = CLI.get_float_opt ["-c"] args in
   let scan_w = CLI.get_set_bool ["--scan-w"] args in
   let w_range_str = CLI.get_string_opt ["--w-range"] args in
+  let e_range_str = CLI.get_string_opt ["--e-range"] args in
   let c_range_str = CLI.get_string_opt ["--c-range"] args in
   let k_range_str = CLI.get_string_opt ["--k-range"] args in
   let fixed_k = CLI.get_int_opt ["-k"] args in
@@ -771,7 +786,8 @@ let main () =
   let maybe_esteps = CLI.get_int_opt ["--scan-e"] args in
   let do_regression =
     CLI.get_set_bool ["--regr"] args ||
-    Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps in
+    Opt.is_some maybe_epsilon || Opt.is_some maybe_esteps ||
+    Opt.is_some e_range_str in
   let do_classification = not do_regression in
   let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
@@ -790,6 +806,8 @@ let main () =
     else match fixed_w with
       | Some w -> [w]
       | None -> [1.0] in
+  (* e-range? *)
+  let maybe_es = decode_e_range e_range_str in
   (* scan k? *)
   let ks =
     if scan_k || BatOption.is_some k_range_str then
@@ -846,7 +864,7 @@ let main () =
               begin
                 let best_e, best_c, best_r2 =
                   let epsilons =
-                    epsilon_range maybe_epsilon maybe_esteps train in
+                    epsilon_range maybe_epsilon maybe_esteps maybe_es train in
                   if nfolds = 1 then
                     optimize_regr verbose ncores epsilons cs train test
                   else
