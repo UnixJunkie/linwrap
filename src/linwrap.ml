@@ -561,16 +561,19 @@ let prod_predict_regr
 
 let count_active_decoys pairs fn =
   let n_total = Utls.file_nb_lines fn in
-  let n_actives =
+  let filter =
     if pairs then
-      int_of_string
-        (Utls.get_command_output (sprintf "egrep -c '^active' %s" fn))
+      (fun s -> BatString.starts_with s "active")
     else
-      int_of_string
-        (Utls.get_command_output (sprintf "egrep -c '^\\+1 ' %s" fn)) in
-  let n_decoys = n_total - n_actives in
-  Log.info "%s: |A|/|D|=%d/%d" fn n_actives n_decoys;
-  (n_actives, n_decoys)
+      (fun s -> BatString.starts_with s "+1 ") in
+  let n_actives = ref 0 in
+  Utls.iter_on_lines_of_file fn (fun line ->
+      if filter line then
+        incr n_actives
+    );
+  let n_decoys = n_total - !n_actives in
+  Log.info "%s: |A|/|D|=%d/%d" fn !n_actives n_decoys;
+  (!n_actives, n_decoys)
 
 let decode_w_range pairs maybe_train_fn input_fn maybe_range_str =
   match maybe_range_str with
