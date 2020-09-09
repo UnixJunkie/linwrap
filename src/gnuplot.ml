@@ -103,7 +103,7 @@ let lorenz_plot title_str curve =
          set yrange [0:1]\n\
          set xlabel 'Population (%%)'\n\
          set ylabel 'Total value (%%)'\n\
-         set key outside right\n\
+         set key left\n\
          f(x) = x\n\
          plot '%s' u 1:2 w lines t 'Lorenz', \
               f(x) lc rgb 'black' not\n"
