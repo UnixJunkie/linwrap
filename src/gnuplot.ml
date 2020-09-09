@@ -86,6 +86,34 @@ let regr_plot title actual preds =
     *          t 'n=%d r2=%.2f', \\" data_fn nb_trees r2; *)
   ignore(Sys.command (sprintf "gnuplot --persist %s" plot_fn))
 
+let lorenz_plot title_str curve =
+  let gnuplot_script_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_lorenz_" ".gpl" in
+  let curve_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_lorenz_" ".txt" in
+  Utls.with_out_file curve_fn (fun out ->
+      L.iter (fun (pred, actual) ->
+          fprintf out "%f %f\n" pred actual
+        ) curve
+    );
+  Utls.with_out_file gnuplot_script_fn (fun out ->
+      fprintf out
+        "set title \"%s\"\n\
+         set xtics out nomirror\n\
+         set ytics out nomirror\n\
+         set size square\n\
+         set xrange [0:1]\n\
+         set yrange [0:1]\n\
+         set xlabel 'Population (%%)'\n\
+         set ylabel 'Total value (%%)'\n\
+         set key outside right\n\
+         f(x) = x\n\
+         plot '%s' u 1:2 w lines t 'Lorenz', \
+              f(x) lc rgb 'black' not\n"
+        title_str curve_fn
+    );
+  let gnuplot_log = Fn.temp_file ~temp_dir:"/tmp" "gnuplot_" ".log" in
+  Utls.run_command (sprintf "(gnuplot -persist %s 2>&1) > %s"
+                      gnuplot_script_fn gnuplot_log)
+
 (* comes from RanKers Gnuplot module *)
 let roc_curve title_str
     score_labels_fn roc_curve_fn pr_curve_fn nb_actives nb_decoys ef_curve_fn =

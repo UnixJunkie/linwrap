@@ -846,10 +846,6 @@ let main () =
                   else
                     optimize_regr_nfolds
                       ncores verbose nfolds epsilons cs all_lines in
-                let title_str =
-                  sprintf "nfolds=%d e=%g C=%g R2=%.3f"
-                    nfolds best_e best_c best_r2 in
-                Log.info "%s" title_str;
                 let actual, preds =
                   if nfolds = 1 then
                     single_train_test_regr
@@ -857,8 +853,17 @@ let main () =
                   else
                     single_train_test_regr_nfolds
                       verbose nfolds best_e best_c all_lines in
-                (if not no_gnuplot then
-                   Gnuplot.regr_plot title_str actual preds)
+                let pred_acts = L.combine preds actual in
+                (* FBR: make negate a CLI param *)
+                let lorenz_curve = Gnuplot.lorenz_curve true pred_acts in
+                let gini = Gnuplot.gini_index lorenz_curve in
+                let title_str =
+                  sprintf "nfolds=%d e=%g C=%g R2=%.3f GI=%.3f"
+                    nfolds best_e best_c best_r2 gini in
+                Log.info "%s" title_str;
+                if not no_gnuplot then
+                  (Gnuplot.regr_plot title_str actual preds;
+                   Gnuplot.lorenz_plot title_str pred_acts)
               end
             else (* classification *)
               let _best_c, _best_w, _best_k, _best_auc =
