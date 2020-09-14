@@ -552,7 +552,7 @@ let prod_predict_regr
       Utls.run_command ~debug:verbose
         (sprintf "paste %s %s > %s; mv %s %s"
            tmp_names_fn output_fn tmp_csv_fn tmp_csv_fn output_fn);
-      (if not verbose then L.iter Sys.remove [tmp_csv_fn; tmp_names_fn])
+      (if not verbose then Sys.remove tmp_names_fn)
     end
   else
     Utls.run_command ~debug:verbose
