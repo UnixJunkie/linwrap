@@ -726,8 +726,6 @@ let main () =
               (example='0.01,0.02,0.03')\n  \
               [--k-range <int,int,...>] explicit scan range for k \n  \
               (example='1,2,3,5,10')\n  \
-              [--negate]: negate preds and acts for Lorenz curve\n  \
-              (use if best score is most negative value)\n  \
               [--scan-k]: scan number of bags \
               (advice: optim. k rather than w)\n"
        Sys.argv.(0);
@@ -739,7 +737,6 @@ let main () =
   let maybe_valid_fn = CLI.get_string_opt ["--valid"] args in
   let maybe_test_fn = CLI.get_string_opt ["--test"] args in
   let output_fn = CLI.get_string_def ["-o"] args "/dev/stdout" in
-  let negate = CLI.get_set_bool ["--negate"] args in
   let will_save = L.mem "-s" args || L.mem "--save" args in
   let will_load = L.mem "-l" args || L.mem "--load" args in
   let force = CLI.get_set_bool ["-f"] args in
@@ -825,12 +822,9 @@ let main () =
           let acts = read_IC50s_from_train_fn pairs input_fn in
           let preds = read_IC50s_from_preds_fn pairs output_fn in
           let r2 = Cpm.RegrStats.r2 acts preds in
-          let lorenz_curve = Gnuplot.lorenz_curve negate (L.combine preds acts) in
-          let gini = Gnuplot.gini_index lorenz_curve in
-          let title_str = sprintf "N=%d R2=%.3f GI=%.3f" (L.length preds) r2 gini in
+          let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
           if not no_gnuplot then
-            (Gnuplot.lorenz_plot title_str lorenz_curve;
-             Gnuplot.regr_plot title_str acts preds)
+            Gnuplot.regr_plot title_str acts preds
         end
       else
         let model_fns = Utls.lines_of_file models_fn in
@@ -877,16 +871,12 @@ let main () =
                   else
                     single_train_test_regr_nfolds
                       verbose nfolds best_e best_c all_lines in
-                let pred_acts = L.combine preds actual in
-                let lorenz_curve = Gnuplot.lorenz_curve negate pred_acts in
-                let gini = Gnuplot.gini_index lorenz_curve in
                 let title_str =
-                  sprintf "nfolds=%d e=%g C=%g R2=%.3f GI=%.3f"
-                    nfolds best_e best_c best_r2 gini in
+                  sprintf "nfolds=%d e=%g C=%g R2=%.3f"
+                    nfolds best_e best_c best_r2 in
                 Log.info "%s" title_str;
                 if not no_gnuplot then
-                  (Gnuplot.lorenz_plot title_str lorenz_curve;
-                   Gnuplot.regr_plot title_str actual preds)
+                  Gnuplot.regr_plot title_str actual preds
               end
             else (* classification *)
               let _best_c, _best_w, _best_k, _best_auc =

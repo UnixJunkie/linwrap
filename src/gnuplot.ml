@@ -6,52 +6,17 @@ module L = BatList
 module Log = Dolog.Log
 module Stats = Cpm.RegrStats
 
-(* negate should be set to true for docking scores
-   (i.e. best score is most negative) *)
-let lorenz_curve negate (pred_reals: (float * float) list) =
-  (* sort by increasing predicted value *)
-  let pred_reals =
-    if negate then
-      L.map (fun (score, value) -> (-.score, -.value)) pred_reals
-    else pred_reals in
-  let cmp_scores (a, _b) (c, _d) =
-    BatFloat.compare a c in
-  let pred_reals = L.sort cmp_scores pred_reals in
-  (* compute cumulated percentage of the total value *)
-  let cmp_values (_a, b) (_c, d) =
-    BatFloat.compare b d in
-  let (_s1, vmin), (_s2, vmax) = L.min_max ~cmp:cmp_values pred_reals in
-  let delta_values = vmax -. vmin in
-  let normalize_value v =
-    (v -. vmin) /. delta_values in
-  let pred_reals = L.map (fun (s, v) -> (s, normalize_value v)) pred_reals in
-  let sum_norm_values = L.fsum (L.rev_map snd pred_reals) in
-  (* compute cumulated percent of whole population *)
-  let n = float (L.length pred_reals) in
-  let pred_reals =
-    L.mapi (fun i (_s, v) ->
-        (float (i + 1) /. n, v)
-      ) pred_reals in
-  let pred_reals =
-    let total = ref 0.0 in
-    L.map (fun (s, v) ->
-        total := !total +. v;
-        (s, !total /. sum_norm_values)
-      ) pred_reals in
-  (* curve must start at (0, 0) *)
-  (0.0, 0.0) :: pred_reals
-
-(* G_I = A / (A + B) *)
-let gini_index lorenz_curve_points =
-  (* I don't really compute areas, but the result
-     should approximate very well the calculation using areas *)
-  let a_tot = ref 0.0 in
-  let b_tot = ref 0.0 in
-  L.iter (fun (x, y) ->
-      a_tot := !a_tot +. (x -. y);
-      b_tot := !b_tot +. y
-    ) lorenz_curve_points;
-  !a_tot /. (!a_tot +. !b_tot)
+(* (\* G_I = A / (A + B) *\)
+ * let gini_index lorenz_curve_points =
+ *   (\* I don't really compute areas, but the result
+ *      should approximate very well the calculation using areas *\)
+ *   let a_tot = ref 0.0 in
+ *   let b_tot = ref 0.0 in
+ *   L.iter (fun (x, y) ->
+ *       a_tot := !a_tot +. (x -. y);
+ *       b_tot := !b_tot +. y
+ *     ) lorenz_curve_points;
+ *   !a_tot /. (!a_tot +. !b_tot) *)
 
 let regr_plot title actual preds =
   let x_min, x_max = L.min_max ~cmp:BatFloat.compare actual in
