@@ -822,7 +822,8 @@ let main () =
           let acts = read_IC50s_from_train_fn pairs input_fn in
           let preds = read_IC50s_from_preds_fn pairs output_fn in
           let r2 = Cpm.RegrStats.r2 acts preds in
-          let title_str = sprintf "N=%d R2=%.3f" (L.length preds) r2 in
+          let title_str =
+            sprintf "T=%s N=%d R2=%.3f" input_fn (L.length preds) r2 in
           if not no_gnuplot then
             Gnuplot.regr_plot title_str acts preds
         end
@@ -872,8 +873,8 @@ let main () =
                     single_train_test_regr_nfolds
                       verbose nfolds best_e best_c all_lines in
                 let title_str =
-                  sprintf "nfolds=%d e=%g C=%g R2=%.3f"
-                    nfolds best_e best_c best_r2 in
+                  sprintf "T=%s nfolds=%d e=%g C=%g R2=%.3f"
+                    input_fn nfolds best_e best_c best_r2 in
                 Log.info "%s" title_str;
                 if not no_gnuplot then
                   Gnuplot.regr_plot title_str actual preds
