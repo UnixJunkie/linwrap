@@ -198,10 +198,14 @@ let increment_feat_indexes features =
   let buff = Buffer.create 1024 in
   let feat_vals = S.split_on_char ' ' features in
   L.iter (fun feat_val ->
-      Scanf.sscanf feat_val "%d:%d"
-        (fun feat value ->
-           bprintf buff " %d:%d" (feat + 1) value
-        )
+      try Scanf.sscanf feat_val "%d:%d"
+            (fun feat value ->
+               bprintf buff " %d:%d" (feat + 1) value
+            )
+      with exn ->
+        (Log.fatal "Linwrap.increment_feat_indexes: cannot parse '%s' in '%s'"
+           feat_val features;
+         raise exn)
     ) feat_vals;
   (* eprintf "len:%d features:%s\nres:%s\n%!"
      (L.length feat_vals) features res; *)
