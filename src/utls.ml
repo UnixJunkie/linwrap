@@ -11,6 +11,7 @@
 
 open Printf
 
+module A = BatArray
 module Fn = Filename
 module L = BatList
 module Log = Dolog.Log
@@ -112,8 +113,15 @@ let lines_to_file fn l =
       List.iter (fprintf out "%s\n") l
     )
 
-let list_to_file fn f l =
+let list_to_file (fn: filename) (f: 'a -> string) (l: 'a list): unit =
   lines_to_file fn (L.map f l)
+
+let array_to_file (fn: filename) (f: 'a -> string) (a: 'a array): unit =
+  with_out_file fn (fun out ->
+      A.iter (fun x ->
+          fprintf out "%s\n" (f x)
+        ) a
+    )
 
 (* all lines of file [fn], except those starting with [comment_prefix] *)
 let uncommented_lines_of_file
@@ -475,3 +483,8 @@ let list_filter_count p l =
   let res = ref 0 in
   L.iter (fun x -> if p x then incr res) l;
   !res
+
+let array_count p a =
+  let i = ref 0 in
+  A.iter (fun x -> if p x then incr i) a;
+  !i
