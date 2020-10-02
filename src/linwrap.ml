@@ -415,20 +415,16 @@ let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
   Log.info "threshold: %g %dxCV_MCC: %g" threshold nfolds mcc_max
 
-let perf_plot noplot score_labels c' w' k' auc =
+let perf_plot noplot score_labels c' w' k' auc bed =
+  let title_str =
+    sprintf "C=%g w=%g k=%d AUC=%.3f BED=%.3f"
+      c' w' k' auc bed in
   if not noplot then
-    begin
-      let bed = ROC.bedroc_auc score_labels in
-      let aupr = ROC.pr_auc score_labels in
-      let title_str =
-        sprintf "C=%g w=%g k=%d AUC=%.3f BED=%.3f PR=%.3f"
-          c' w' k' auc bed aupr in
-      let tmp_scores_fn =
-        Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
-      Perfs.evaluate_performance
-        None None tmp_scores_fn title_str score_labels;
-      Sys.remove tmp_scores_fn
-    end
+    let tmp_scores_fn =
+      Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
+    Perfs.evaluate_performance
+      None None tmp_scores_fn title_str score_labels;
+    Sys.remove tmp_scores_fn
 
 (* return the best parameter configuration found in the parameter
    configs list [cwks]: (best_c, best_w, best_k, best_auc) *)
@@ -436,20 +432,28 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
   match cwks with
   | [] -> assert(false) (* there should be at least one configuration *)
   | [((c', w'), k')] ->
-    let score_labels =
-      train_test_maybe_nfolds
-        ncores nfolds verbose model_cmd rng c' w' k' train test in
-    let auc = ROC.auc score_labels in
-    perf_plot noplot score_labels c' w' k' auc;
+    let for_auc =
+      let score_labels =
+        train_test_maybe_nfolds
+          ncores nfolds verbose model_cmd rng c' w' k' train test in
+      A.of_list score_labels in
+    ROC.rank_order_by_score_a for_auc;
+    let auc = ROC.fast_auc_a for_auc in
+    let bed = ROC.fast_bedroc_auc_a for_auc in
+    perf_plot noplot for_auc c' w' k' auc bed;
     (c', w', k', auc)
   | _ ->
     Parany.Parmap.parfold ncores
       (fun ((c', w'), k') ->
-         let score_labels =
-           train_test_maybe_nfolds
-             1 nfolds verbose model_cmd rng c' w' k' train test in
-         let auc = ROC.auc score_labels in
-         perf_plot noplot score_labels c' w' k' auc;
+         let for_auc =
+           let score_labels =
+             train_test_maybe_nfolds
+               1 nfolds verbose model_cmd rng c' w' k' train test in
+           A.of_list score_labels in
+         ROC.rank_order_by_score_a for_auc;
+         let auc = ROC.fast_auc_a for_auc in
+         let bed = ROC.fast_bedroc_auc_a for_auc in
+         perf_plot noplot for_auc c' w' k' auc bed;
          (c', w', k', auc))
       (fun
         ((_c, _w, _k, prev_best_auc) as prev)
