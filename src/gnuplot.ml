@@ -80,7 +80,7 @@ let lorenz_plot title_str curve =
 
 (* comes from RanKers Gnuplot module *)
 let roc_curve title_str
-    score_labels_fn roc_curve_fn pr_curve_fn nb_actives nb_decoys ef_curve_fn =
+    score_labels_fn roc_curve_fn nb_actives nb_decoys ef_curve_fn =
   (* Utls.run_command
    *   (sprintf "cat %s | time croc-curve 2>/dev/null > %s"
    *      score_labels_fn roc_curve_fn); *)
@@ -102,12 +102,11 @@ let roc_curve title_str
          fit g(x) '%s' using 1:2 via a, b\n\
          plot '%s' u 1:2 w lines t 'ROC'    , \
               '%s' u 1:2 w lines t '|A|/|D|', \
-              '%s' u 1:2 w lines t 'PR'     , \
               ''   u 1:3 w lines t 'A_{%%}' , \
               ''   u 1:4 w lines t 'D_{%%}' , \
               f(x) lc rgb 'black' not, g(x) t 'p_a(m)'\n"
         nb_actives nb_decoys title_str
-        score_labels_fn roc_curve_fn ef_curve_fn pr_curve_fn
+        score_labels_fn roc_curve_fn ef_curve_fn
     );
   let gnuplot_log = Fn.temp_file ~temp_dir:"/tmp" "gnuplot_" ".log" in
   Utls.run_command (sprintf "(gnuplot -persist %s 2>&1) > %s"
