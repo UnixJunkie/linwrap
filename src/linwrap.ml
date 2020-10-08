@@ -341,7 +341,9 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
     Log.info "AUC: %.3f" auc
 
 let train_test ncores verbose pairs cmd rng c w k train test =
-  if k <= 1 then single_train_test verbose pairs cmd c w train test
+  if k <= 1 then
+    (* we don't use bagging then *)
+    single_train_test verbose pairs cmd c w train test
   else (* k > 1 *)
     let bags = L.init k (fun _ -> balanced_bag pairs rng train) in
     let k_score_labels =
