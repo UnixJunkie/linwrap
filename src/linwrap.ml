@@ -14,6 +14,7 @@ open Printf
 module A = BatArray
 module CLI = Minicli.CLI
 module Fn = Filename
+module FpMol = Molenc.FpMol
 module L = BatList
 module Log = Dolog.Log
 module Opt = BatOption
@@ -132,8 +133,8 @@ let single_train_test verbose pairs cmd c w train test =
   | header :: preds ->
     begin
       (if header <> "labels 1 -1" then
-         (Utls.run_command ~debug:true (sprintf "head %s" preds_fn);
-          Log.warn "Linwrap.single_train_test: wrong header in preds_fn"));
+         Log.warn "Linwrap.single_train_test: wrong header in preds_fn: %s"
+           header);
       let pred_scores = L.map pred_score_of_pred_line preds in
       L.map SL.create (L.combine true_labels pred_scores)
     end
@@ -194,6 +195,7 @@ let average_scores k sls =
   L.map (fun (l, s) -> (l, s /. (float k))) sum
 
 (* liblinear wants first feature index=1 instead of 0 *)
+(* FBR: bug in case there are no features *)
 let increment_feat_indexes features =
   let buff = Buffer.create 1024 in
   let feat_vals = S.split_on_char ' ' features in
@@ -513,14 +515,52 @@ let optimize_regr_nfolds ncores verbose nfolds es cs train =
       ) ecs in
   best_r2 e_c_r2s
 
-let single_train_test_regr_nfolds verbose nfolds e c train =
+let mol_of_lines lines =
+  L.mapi (fun i l ->
+      try FpMol.parse_one i l
+      with exn ->
+        let () = Log.fatal "Linwrap.mol_of_lines: invalid line %d: %s" i l in
+        raise exn
+    ) lines
+
+(* compute the list of (tani_dist_nearest_in_train, act, pred)
+   for each molecule in test *)
+let applicability_domain_points train test test_acts test_preds =
+  (* BST index training set *)
+  let bst =
+    let train_mols = A.of_list (mol_of_lines train) in
+    Bstree.(create 10 Two_bands train_mols) in
+  (* find distance to nearest for each in test *)
+  let test_mols = mol_of_lines test in
+  (* return triplets *)
+  let test_act_preds = L.combine test_acts test_preds in
+  L.map2 (fun test_mol (test_act, test_pred) ->
+      let _nearest, nearest_d = Bstree.nearest_neighbor test_mol bst in
+      (nearest_d, test_act, test_pred)
+    ) test_mols test_act_preds
+
+let single_train_test_regr_nfolds verbose ad_plot nfolds e c train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
-  let all_act_preds =
+  let all_act_preds_points =
     L.map (fun (train', test') ->
-        single_train_test_regr verbose Discard e c train' test'
+        let acts, preds =
+          single_train_test_regr verbose Discard e c train' test' in
+        let points =
+          if ad_plot then
+            applicability_domain_points train' test' acts preds
+          else [] in
+        ((acts, preds), points)
       ) train_tests in
+  let all_act_preds, points = L.split all_act_preds_points in
   let xs, ys = L.split all_act_preds in
-  (L.concat xs, L.concat ys)
+  (L.concat xs, L.concat ys, L.concat points)
+
+let dump_AD_points fn points =
+  Utls.with_out_file fn (fun out ->
+      L.iter (fun (d, act, pred) ->
+          fprintf out "%f %f %f\n" d act pred
+        ) points
+    )
 
 (* instance-wise normalization *)
 let normalize_line l =
@@ -749,7 +789,9 @@ let main () =
               [--k-range <int,int,...>] explicit scan range for k \n  \
               (example='1,2,3,5,10')\n  \
               [--scan-k]: scan number of bags \
-              (advice: optim. k rather than w)\n"
+              (advice: optim. k rather than w)\n  \
+              [--dump-AD <filename>]: dump AD points to file\n  \
+              (also requires --regr, --pairs and n>1)\n"
        Sys.argv.(0);
      exit 1);
   let input_fn, was_compressed =
@@ -763,6 +805,8 @@ let main () =
   let will_load = L.mem "-l" args || L.mem "--load" args in
   let force = CLI.get_set_bool ["-f"] args in
   let pairs = CLI.get_set_bool ["--pairs"] args in
+  let ad_points_fn = CLI.get_string_def ["--dump-AD"] args "/dev/null" in
+  let compute_AD = ad_points_fn <> "/dev/null" in
   Utls.enforce (not (will_save && will_load))
     ("Linwrap.main: cannot load and save at the same time");
   let model_cmd =
@@ -892,8 +936,13 @@ let main () =
                     single_train_test_regr
                       verbose model_cmd best_e best_c train test
                   else
-                    single_train_test_regr_nfolds
-                      verbose nfolds best_e best_c all_lines in
+                    let actual', preds', ad_points =
+                      single_train_test_regr_nfolds
+                        verbose compute_AD nfolds best_e best_c all_lines in
+                    (if compute_AD then
+                       dump_AD_points ad_points_fn ad_points
+                    );
+                    (actual', preds') in
                 let title_str =
                   sprintf "T=%s nfolds=%d e=%g C=%g R2=%.3f"
                     input_fn nfolds best_e best_c best_r2 in
