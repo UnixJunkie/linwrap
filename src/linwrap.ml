@@ -548,17 +548,16 @@ let applicability_domain_points train test test_acts test_preds =
   (* BST index training set *)
   Log.info "indexing train mols...";
   let bst =
-    let train_mols = A.of_list (mol_of_lines train) in
+    let train_mols = A.of_list train in
     Bstree.(create 1 Two_bands train_mols) in
   (* find distance to nearest for each in test *)
   Log.info "querying test mols...";
-  let test_mols = mol_of_lines test in
   (* return triplets *)
   let test_act_preds = L.combine test_acts test_preds in
   L.map2 (fun test_mol (test_act, test_pred) ->
       let _nearest, nearest_d = Bstree.nearest_neighbor test_mol bst in
       (nearest_d, test_act, test_pred)
-    ) test_mols test_act_preds
+    ) test test_act_preds
 
 let single_train_test_regr_nfolds verbose ad_plot nfolds nprocs e c train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
@@ -568,7 +567,8 @@ let single_train_test_regr_nfolds verbose ad_plot nfolds nprocs e c train =
           single_train_test_regr verbose Discard e c train' test' in
         let points =
           if ad_plot then
-            applicability_domain_points train' test' acts preds
+            applicability_domain_points
+              (mol_of_lines train') (mol_of_lines test') acts preds
           else [] in
         ((acts, preds), points)
       ) train_tests in
@@ -913,8 +913,19 @@ let main () =
           let r2 = Cpm.RegrStats.r2 acts preds in
           let title_str =
             sprintf "T=%s N=%d R2=%.3f" input_fn (L.length preds) r2 in
-          if not no_gnuplot then
-            Gnuplot.regr_plot title_str acts preds
+          (if not no_gnuplot then
+             Gnuplot.regr_plot title_str acts preds
+          );
+          (if compute_AD then
+             match maybe_train_fn with
+             | None -> Log.error "-l and --dump-AD also require --train"
+             | Some train_fn ->
+               let train = FpMol.molecules_of_file train_fn in
+               let test = FpMol.molecules_of_file input_fn in
+               let ad_points =
+                 applicability_domain_points train test acts preds in
+               dump_AD_points ad_points_fn ad_points
+          )
         end
       else
         let model_fns = Utls.lines_of_file models_fn in
