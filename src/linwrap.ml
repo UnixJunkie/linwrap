@@ -542,9 +542,12 @@ let optimize_regr_nfolds ncores verbose nfolds es cs train =
 let mol_of_lines lines =
   L.mapi liblinear_line_to_FpMol lines
 
+let parmap2 ncores f2 l1 l2 =
+  Parany.Parmap.parmap ncores (fun (x, y) -> f2 x y) (L.combine l1 l2)
+
 (* compute the list of (tani_dist_nearest_in_train, act, pred)
    for each molecule in test *)
-let applicability_domain_points train test test_acts test_preds =
+let applicability_domain_points ncores train test test_acts test_preds =
   (* BST index training set *)
   Log.info "indexing train mols...";
   let bst =
@@ -554,7 +557,7 @@ let applicability_domain_points train test test_acts test_preds =
   Log.info "querying test mols...";
   (* return triplets *)
   let test_act_preds = L.combine test_acts test_preds in
-  L.map2 (fun test_mol (test_act, test_pred) ->
+  parmap2 ncores (fun test_mol (test_act, test_pred) ->
       let _nearest, nearest_d = Bstree.nearest_neighbor test_mol bst in
       (nearest_d, test_act, test_pred)
     ) test test_act_preds
@@ -567,7 +570,7 @@ let single_train_test_regr_nfolds verbose ad_plot nfolds nprocs e c train =
           single_train_test_regr verbose Discard e c train' test' in
         let points =
           if ad_plot then
-            applicability_domain_points
+            applicability_domain_points 1 (* already inside a parmap *)
               (mol_of_lines train') (mol_of_lines test') acts preds
           else [] in
         ((acts, preds), points)
@@ -578,7 +581,7 @@ let single_train_test_regr_nfolds verbose ad_plot nfolds nprocs e c train =
 
 let dump_AD_points fn points' =
   let points = A.of_list points' in
-  A.sort (fun (d1,_,_) (d2,_,_) -> BatFloat.compare d1 d2) points;
+  A.stable_sort (fun (d1,_,_) (d2,_,_) -> BatFloat.compare d1 d2) points;
   Utls.with_out_file fn (fun out ->
       A.iter (fun (d, act, pred) ->
           fprintf out "%f %f %f\n" d act pred
@@ -923,7 +926,7 @@ let main () =
                let train = FpMol.molecules_of_file train_fn in
                let test = FpMol.molecules_of_file input_fn in
                let ad_points =
-                 applicability_domain_points train test acts preds in
+                 applicability_domain_points ncores train test acts preds in
                dump_AD_points ad_points_fn ad_points
           )
         end
