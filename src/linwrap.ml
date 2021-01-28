@@ -576,9 +576,11 @@ let single_train_test_regr_nfolds verbose ad_plot nfolds nprocs e c train =
   let xs, ys = L.split all_act_preds in
   (L.concat xs, L.concat ys, L.concat points)
 
-let dump_AD_points fn points =
+let dump_AD_points fn points' =
+  let points = A.of_list points' in
+  A.sort (fun (d1,_,_) (d2,_,_) -> BatFloat.compare d1 d2) points;
   Utls.with_out_file fn (fun out ->
-      L.iter (fun (d, act, pred) ->
+      A.iter (fun (d, act, pred) ->
           fprintf out "%f %f %f\n" d act pred
         ) points
     )
