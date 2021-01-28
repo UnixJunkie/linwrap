@@ -213,6 +213,30 @@ let increment_feat_indexes features =
      (L.length feat_vals) features res; *)
   Buffer.contents buff
 
+(* liblinear line format:
+   '-80.56 1:7 2:5 3:8 4:5 5:5 6:4 7:6 8:3 9:5 10:4 11:2'
+   molenc line format:
+   'molname,-75.63,[0:4;1:4;2:5;3:2;4:3;5:2;6:2;7:2]' *)
+let liblinear_line_to_FpMol index l =
+  let feat_vals = S.split_on_char ' ' l in
+  match feat_vals with
+  | [] | [_] -> failwith ("Linwrap.liblinear_line_to_FpMol: " ^ l)
+  | ic50 :: feat_vals ->
+    let name = sprintf "mol%d" index in
+    let buff = Buffer.create 1024 in
+    L.iteri (fun i feat_val ->
+        try Scanf.sscanf feat_val "%d:%d"
+              (fun feat value ->
+                 bprintf buff (if i = 0 then "[%d:%d" else ";%d:%d")
+                   (feat - 1) value)
+        with exn ->
+          (Log.fatal "Linwrap.liblinear_line_to_FpMol: cannot parse: %s"
+             feat_val;
+           raise exn)
+      ) feat_vals;
+    Buffer.add_char buff ']';
+    FpMol.create name index (float_of_string ic50) (Buffer.contents buff)
+
 let atom_pairs_line_to_csv do_classification line =
   (* Example for classification:
    * "active<NAME>,pIC50,[feat:val;...]" -> "+1 feat:val ..."
@@ -516,21 +540,18 @@ let optimize_regr_nfolds ncores verbose nfolds es cs train =
   best_r2 e_c_r2s
 
 let mol_of_lines lines =
-  L.mapi (fun i l ->
-      try FpMol.parse_one i l
-      with exn ->
-        let () = Log.fatal "Linwrap.mol_of_lines: invalid line %d: %s" i l in
-        raise exn
-    ) lines
+  L.mapi liblinear_line_to_FpMol lines
 
 (* compute the list of (tani_dist_nearest_in_train, act, pred)
    for each molecule in test *)
 let applicability_domain_points train test test_acts test_preds =
   (* BST index training set *)
+  Log.info "indexing train mols...";
   let bst =
     let train_mols = A.of_list (mol_of_lines train) in
-    Bstree.(create 10 Two_bands train_mols) in
+    Bstree.(create 1 Two_bands train_mols) in
   (* find distance to nearest for each in test *)
+  Log.info "querying test mols...";
   let test_mols = mol_of_lines test in
   (* return triplets *)
   let test_act_preds = L.combine test_acts test_preds in
@@ -539,10 +560,10 @@ let applicability_domain_points train test test_acts test_preds =
       (nearest_d, test_act, test_pred)
     ) test_mols test_act_preds
 
-let single_train_test_regr_nfolds verbose ad_plot nfolds e c train =
+let single_train_test_regr_nfolds verbose ad_plot nfolds nprocs e c train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
   let all_act_preds_points =
-    L.map (fun (train', test') ->
+    Parany.Parmap.parmap nprocs (fun (train', test') ->
         let acts, preds =
           single_train_test_regr verbose Discard e c train' test' in
         let points =
@@ -938,7 +959,7 @@ let main () =
                   else
                     let actual', preds', ad_points =
                       single_train_test_regr_nfolds
-                        verbose compute_AD nfolds best_e best_c all_lines in
+                        verbose compute_AD nfolds ncores best_e best_c all_lines in
                     (if compute_AD then
                        dump_AD_points ad_points_fn ad_points
                     );
