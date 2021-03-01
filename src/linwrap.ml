@@ -988,10 +988,11 @@ let main () =
                   Gnuplot.regr_plot title_str actual preds
               end
             else (* classification *)
-              let _best_c, _best_w, _best_k, _best_auc =
+              let best_c, best_w, best_k, best_auc =
                 optimize ncores verbose no_gnuplot nfolds
                   model_cmd rng train test cwks in
-              ()
+              Log.info "T=%s nfolds=%d C=%.3f w=%.3f k=%d AUC=%.3f"
+                input_fn nfolds best_c best_w best_k best_auc
         end
       | (Some train_fn, Some valid_fn, Some test_fn) ->
         begin
