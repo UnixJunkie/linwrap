@@ -61,6 +61,13 @@ let array_bootstrap_sample rng nb_samples a =
 let is_active pairs s =
   S.starts_with s (if pairs then "active" else "+1 ")
 
+let get_name_from_AP_line pairs l =
+  if pairs then
+    let name, _rest = S.split ~by:"," l in
+    name
+  else
+    "" (* not sure there is one in that case *)
+
 let get_pIC50 pairs s =
   if pairs then
     try Scanf.sscanf s "%s@,%f,%s" (fun _name pIC50 _features -> pIC50)
@@ -358,11 +365,20 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   if verbose && output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
-      let true_labels = L.map (is_active pairs) (Utls.lines_of_file test_fn) in
+      let test_lines = Utls.lines_of_file test_fn in
+      let names = L.map (get_name_from_AP_line pairs) test_lines in
+      let true_labels = L.map (is_active pairs) test_lines in
       let pred_scores =
         L.map (fun l -> Scanf.sscanf l "%f" (fun x -> x))
           (Utls.lines_of_file output_fn) in
       let score_labels = L.map SL.create (L.combine true_labels pred_scores) in
+      let name_scores = L.combine names pred_scores in
+      (* prepend score with mol. name *)
+      Utls.with_out_file output_fn (fun out ->
+          L.iter (fun (name, pred_score) ->
+              fprintf out "%s\t%g\n" name pred_score
+            ) name_scores
+        );
       ROC.auc score_labels in
     Log.info "AUC: %.3f" auc
 
