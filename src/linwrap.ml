@@ -362,7 +362,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
   (* the previous line would raise Failure("invalid operation")
    * so we just remove the file instead *)
   Sys.remove tmp_pht_fn;
-  if verbose && output_fn <> "/dev/stdout" then
+  if output_fn <> "/dev/stdout" then
     (* compute AUC *)
     let auc =
       let test_lines = Utls.lines_of_file test_fn in
