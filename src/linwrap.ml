@@ -620,28 +620,31 @@ let () =
   assert(normalize_line "+1 2:1 5:8 123:1" = "+1 2:0.1 5:0.8 123:0.1");
   assert(normalize_line "-1 2:3 4:7" = "-1 2:0.3 4:0.7")
 
+let prepend_scores_by_names
+    verbose quiet_option do_classification test_fn model_fn output_fn =
+  let tmp_csv_fn = pairs_to_csv verbose do_classification test_fn in
+  Utls.run_command ~debug:verbose
+    (sprintf "%s %s %s %s %s"
+       liblin_predict quiet_option tmp_csv_fn model_fn output_fn);
+  (* output_fn only holds floats now.
+     the following prepend each score by the corresp. molecule name
+     to reach the following line format:
+     ^mol_name\tscore$ *)
+  let tmp_names_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_" ".names" in
+  (* extract mol. names: in *.AP files, this is the first field *)
+  Utls.run_command ~debug:verbose
+    (sprintf "cut -d',' -f1 %s > %s" test_fn tmp_names_fn);
+  Utls.run_command ~debug:verbose
+    (sprintf "paste %s %s > %s; mv %s %s"
+       tmp_names_fn output_fn tmp_csv_fn tmp_csv_fn output_fn);
+  (if not verbose then Sys.remove tmp_names_fn)
+
 let prod_predict_regr
     verbose pairs do_classification model_fn test_fn output_fn =
   let quiet_option = if not verbose then "-q" else "" in
   if pairs then
-    begin
-      let tmp_csv_fn = pairs_to_csv verbose do_classification test_fn in
-      Utls.run_command ~debug:verbose
-        (sprintf "%s %s %s %s %s"
-           liblin_predict quiet_option tmp_csv_fn model_fn output_fn);
-      (* output_fn only holds floats now.
-         the following prepend each score by the corresp. molecule name
-         to reach the following line format:
-         ^mol_name\tscore$ *)
-      let tmp_names_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_" ".names" in
-      (* extract mol. names: in *.AP files, this is the first field *)
-      Utls.run_command ~debug:verbose
-        (sprintf "cut -d',' -f1 %s > %s" test_fn tmp_names_fn);
-      Utls.run_command ~debug:verbose
-        (sprintf "paste %s %s > %s; mv %s %s"
-           tmp_names_fn output_fn tmp_csv_fn tmp_csv_fn output_fn);
-      (if not verbose then Sys.remove tmp_names_fn)
-    end
+    prepend_scores_by_names
+      verbose quiet_option do_classification test_fn model_fn output_fn
   else
     Utls.run_command ~debug:verbose
       (sprintf "%s %s %s %s %s"
