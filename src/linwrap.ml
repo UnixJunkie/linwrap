@@ -63,8 +63,10 @@ let is_active pairs s =
 
 let get_name_from_AP_line pairs l =
   if pairs then
-    let name, _rest = S.split ~by:"," l in
-    name
+    try
+      let name, _rest = S.split ~by:"," l in
+      name
+    with exn -> (Log.fatal "cannot parse: %s" l; raise exn)
   else
     "" (* not sure there is one in that case *)
 
@@ -999,6 +1001,12 @@ let main () =
                        dump_AD_points ad_points_fn ad_points
                     );
                     (actual', preds') in
+                (* dump to a .act_pred file  *)
+                let act_preds = L.combine actual preds in
+                Utls.list_to_file output_fn
+                  (fun (act, pred) ->
+                     sprintf "%f\t%f" act pred
+                  ) act_preds;
                 let title_str =
                   sprintf "T=%s nfolds=%d e=%g C=%g R2=%.3f"
                     input_fn nfolds best_e best_c best_r2 in
