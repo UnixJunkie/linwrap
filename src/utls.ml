@@ -488,3 +488,7 @@ let array_count p a =
   let i = ref 0 in
   A.iter (fun x -> if p x then incr i) a;
   !i
+
+let list_combine3 l1 l2 l3 =
+  let l1_l2 = L.combine l1 l2 in
+  L.map2 (fun (x, y) z -> (x, y, z)) l1_l2 l3
