@@ -536,9 +536,12 @@ let best_r2 l =
               ) (0.0, 0.0, 0, 0.0) l
 
 let log_R2 e c k r2 =
-  if r2 < 0.3 then Log.error "(e, C, k, R2) = %g %g %d %.3f" e c k r2
-  else if r2 < 0.5 then Log.warn "(e, C, k, R2) = %g %g %d %.3f" e c k r2
-  else Log.info "(e, C, R2) = %g %g %d %.3f" e c k r2
+  (if r2 < 0.3 then
+     Log.error
+   else if r2 < 0.5 then
+     Log.warn
+   else
+     Log.info) "(e, C, k, R2) = %g %g %d %.3f" e c k r2
 
 (* return the best parameter configuration (epsilon, C, k) found *)
 let optimize_regr verbose rng ncores es cs ks train test =
