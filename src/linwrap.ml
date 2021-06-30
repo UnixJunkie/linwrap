@@ -54,8 +54,7 @@ let array_bootstrap_sample rng nb_samples a =
   let n = Array.length a in
   assert(nb_samples <= n);
   A.init nb_samples (fun _ ->
-      let rand = Random.State.int rng n in
-      a.(rand)
+      A.unsafe_get a (Random.State.int rng n)
     )
 
 let is_active pairs s =
@@ -751,8 +750,10 @@ let svr_epsilon_range (nsteps: int) (ys: float list): float list =
 let epsilon_range maybe_epsilon maybe_esteps maybe_es train =
   match (maybe_epsilon, maybe_esteps, maybe_es) with
   | (None, None, Some es) -> es
-  | (_, _, Some _) -> failwith "Linwrap.epsilon_range: (e or esteps) and --e-range"
-  | (Some _, Some _, None) -> failwith "Linwrap.epsilon_range: both e and esteps"
+  | (_, _, Some _) ->
+    failwith "Linwrap.epsilon_range: (e or esteps) and --e-range"
+  | (Some _, Some _, None) ->
+    failwith "Linwrap.epsilon_range: both e and esteps"
   | (None, None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
   | (Some e, None, None) -> [e]
   | (None, Some nsteps, None) ->
@@ -996,7 +997,8 @@ let main () =
                   else
                     let actual', preds', ad_points =
                       single_train_test_regr_nfolds
-                        verbose compute_AD nfolds ncores best_e best_c all_lines in
+                        verbose compute_AD nfolds ncores best_e best_c
+                        all_lines in
                     (if compute_AD then
                        dump_AD_points ad_points_fn ad_points
                     );
