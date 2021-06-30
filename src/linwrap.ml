@@ -48,15 +48,6 @@ let pred_score_of_pred_line l =
     (Log.fatal "Linwrap.pred_score_of_pred_line: cannot parse: %s" l;
      raise exn)
 
-(* get one bootstrap sample of size 'nb_samples' using
-   sampling with replacement *)
-let array_bootstrap_sample rng nb_samples a =
-  let n = Array.length a in
-  assert(nb_samples <= n);
-  A.init nb_samples (fun _ ->
-      A.unsafe_get a (Random.State.int rng n)
-    )
-
 let is_active pairs s =
   S.starts_with s (if pairs then "active" else "+1 ")
 
@@ -88,8 +79,8 @@ let balanced_bag pairs rng lines =
     let n_acts = L.length acts in
     let n_decs = L.length decs in
     min n_acts n_decs in
-  let acts_a = array_bootstrap_sample rng n (A.of_list acts) in
-  let decs_a = array_bootstrap_sample rng n (A.of_list decs) in
+  let acts_a = Utls.array_bootstrap_sample rng n (A.of_list acts) in
+  let decs_a = Utls.array_bootstrap_sample rng n (A.of_list decs) in
   let tmp_a = A.concat [acts_a; decs_a] in
   A.shuffle ~state:rng tmp_a; (* randomize selected lines order *)
   A.to_list tmp_a
