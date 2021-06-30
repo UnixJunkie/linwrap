@@ -19,6 +19,7 @@ module L = BatList
 module Log = Dolog.Log
 module Opt = BatOption
 module PHT = Dokeysto_camltc.Db_camltc.RW
+module RNG = BatRandom.State
 module S = BatString
 
 module SL = struct
@@ -192,6 +193,26 @@ let average_scores k sls =
   assert(L.length sls = k);
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
+
+(* must be greater than 0 and less than 2^30 *)
+let rand_int_bound = (BatInt.pow 2 30) - 1
+
+let bagged_train_test_regr nprocs verbose rng_seed cmd k e c train' test =
+  let a = A.of_list train' in
+  let n = A.length a in
+  let seed_stream = RNG.make [|rng_seed|] in
+  let seeds =
+    L.init k (fun _i ->
+        RNG.int seed_stream rand_int_bound
+      ) in
+  let preds =
+    Parany.Parmap.parmap nprocs (fun seed ->
+        let rng = Random.State.make [|seed|] in
+        let train = A.to_list (Utls.array_bootstrap_sample rng n a) in
+        let acts, preds = single_train_test_regr verbose cmd e c train test in
+        L.combine acts preds
+      ) seeds in
+  average_scores k preds
 
 (* liblinear wants first feature index=1 instead of 0 *)
 (* FBR: bug in case there are no features *)
