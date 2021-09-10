@@ -807,12 +807,14 @@ let main () =
               [-c <float>]: fix C\n  \
               [-e <float>]: fix epsilon (for SVR);\n  \
               (0 <= epsilon <= max_i(|y_i|))\n  \
+              [--iwn]: turn ON instance-wise-normalization\n  \
               [-w <float>]: fix w1\n  \
               [--no-plot]: no gnuplot\n  \
               [-k <int>]: number of bags for bagging (default=off)\n  \
               [{-n|--NxCV} <int>]: folds of cross validation\n  \
               [--mcc-scan]: MCC scan for a trained model (requires n>1)\n  \
                             also requires (c, w, k) to be known\n  \
+              [-q]: quiet liblinear\n  \
               [--seed <int>]: fix random seed\n  \
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
               [--pairs]: read from .AP files (atom pairs; \
