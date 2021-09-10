@@ -123,6 +123,15 @@ let array_to_file (fn: filename) (f: 'a -> string) (a: 'a array): unit =
         ) a
     )
 
+(* get one bootstrap sample of size 'nb_samples' using
+   sampling with replacement *)
+let array_bootstrap_sample rng nb_samples a =
+  let n = Array.length a in
+  assert(nb_samples <= n);
+  A.init nb_samples (fun _ ->
+      A.unsafe_get a (Random.State.int rng n)
+    )
+
 (* all lines of file [fn], except those starting with [comment_prefix] *)
 let uncommented_lines_of_file
     (comment_prefix: string) (fn: filename): string list =

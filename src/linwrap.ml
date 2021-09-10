@@ -19,6 +19,7 @@ module L = BatList
 module Log = Dolog.Log
 module Opt = BatOption
 module PHT = Dokeysto_camltc.Db_camltc.RW
+module RNG = BatRandom.State
 module S = BatString
 
 module SL = struct
@@ -47,16 +48,6 @@ let pred_score_of_pred_line l =
   with exn ->
     (Log.fatal "Linwrap.pred_score_of_pred_line: cannot parse: %s" l;
      raise exn)
-
-(* get one bootstrap sample of size 'nb_samples' using
-   sampling with replacement *)
-let array_bootstrap_sample rng nb_samples a =
-  let n = Array.length a in
-  assert(nb_samples <= n);
-  A.init nb_samples (fun _ ->
-      let rand = Random.State.int rng n in
-      a.(rand)
-    )
 
 let is_active pairs s =
   S.starts_with s (if pairs then "active" else "+1 ")
@@ -89,8 +80,8 @@ let balanced_bag pairs rng lines =
     let n_acts = L.length acts in
     let n_decs = L.length decs in
     min n_acts n_decs in
-  let acts_a = array_bootstrap_sample rng n (A.of_list acts) in
-  let decs_a = array_bootstrap_sample rng n (A.of_list decs) in
+  let acts_a = Utls.array_bootstrap_sample rng n (A.of_list acts) in
+  let decs_a = Utls.array_bootstrap_sample rng n (A.of_list decs) in
   let tmp_a = A.concat [acts_a; decs_a] in
   A.shuffle ~state:rng tmp_a; (* randomize selected lines order *)
   A.to_list tmp_a
@@ -123,7 +114,7 @@ let single_train_test verbose pairs cmd c w train test =
   Utls.run_command ~debug:verbose
     (* '-b 1' forces probabilist predictions instead of raw scores *)
     (sprintf "%s -b 1 %s %s %s %s"
-       liblin_predict test_fn model_fn preds_fn quiet_command);
+       liblin_predict quiet_command test_fn model_fn preds_fn);
   (* extract true labels *)
   let true_labels = L.map (is_active pairs) test in
   (* extact predicted scores *)
@@ -202,6 +193,30 @@ let average_scores k sls =
   assert(L.length sls = k);
   let sum = L.fold_left accumulate_scores [] sls in
   L.map (fun (l, s) -> (l, s /. (float k))) sum
+
+(* must be greater than 0 and less than 2^30 *)
+let rand_int_bound = (BatInt.pow 2 30) - 1
+
+let bagged_train_test_regr nprocs verbose seed_stream cmd e c k train' test =
+  if k = 1 then
+    (* be compatible with single_train_test_regr *)
+    single_train_test_regr verbose cmd e c train' test
+  else
+    (* bagging regressors *)
+    let a = A.of_list train' in
+    let n = A.length a in
+    let seeds =
+      L.init k (fun _i ->
+          RNG.int seed_stream rand_int_bound
+        ) in
+    let preds =
+      Parany.Parmap.parmap nprocs (fun seed ->
+          let rng = Random.State.make [|seed|] in
+          let train = A.to_list (Utls.array_bootstrap_sample rng n a) in
+          let acts, preds = single_train_test_regr verbose cmd e c train test in
+          L.combine acts preds
+        ) seeds in
+    L.split (average_scores k preds)
 
 (* liblinear wants first feature index=1 instead of 0 *)
 (* FBR: bug in case there are no features *)
@@ -300,7 +315,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
          Utls.run_command ~debug:verbose
            (* '-b 1' forces probabilist predictions instead of raw scores *)
            (sprintf "%s -b 1 %s %s %s %s"
-              liblin_predict tmp_csv_fn model_fn preds_fn quiet_command);
+              liblin_predict quiet_command tmp_csv_fn model_fn preds_fn);
          (if pairs && not verbose then Sys.remove tmp_csv_fn);
          preds_fn)
       (fun acc preds_fn -> preds_fn :: acc)
@@ -515,47 +530,50 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
 (* find best (e, C) configuration by R2 maximization *)
 let best_r2 l =
   L.fold_left (fun
-                ((_best_e, _best_c, best_r2) as best)
-                ((_curr_e, _curr_c, curr_r2) as new_best) ->
+                ((_best_e, _best_c, _best_k, best_r2) as best)
+                ((_curr_e, _curr_c, _curr_k, curr_r2) as new_best) ->
                 if best_r2 >= curr_r2 then best else new_best
-              ) (0.0, 0.0, 0.0) l
+              ) (0.0, 0.0, 0, 0.0) l
 
-let log_R2 e c r2 =
-  if r2 < 0.3 then Log.error "(e, C, R2) = %g %g %.3f" e c r2
-  else if r2 < 0.5 then Log.warn "(e, C, R2) = %g %g %.3f" e c r2
-  else Log.info "(e, C, R2) = %g %g %.3f" e c r2
+let log_R2 e c k r2 =
+  (if r2 < 0.3 then
+     Log.error
+   else if r2 < 0.5 then
+     Log.warn
+   else
+     Log.info) "(e, C, k, R2) = %g %g %d %.3f" e c k r2
 
-(* return the best parameter configuration (C, epsilon) found *)
-let optimize_regr verbose ncores es cs train test =
-  let ecs = L.cartesian_product es cs in
-  let e_c_r2s =
-    Parany.Parmap.parmap ncores (fun (e, c) ->
+(* return the best parameter configuration (epsilon, C, k) found *)
+let optimize_regr verbose rng ncores es cs ks train test =
+  let ecks = L.(cartesian_product (cartesian_product es cs) ks) in
+  let e_c_k_r2s =
+    Parany.Parmap.parmap ncores (fun ((e, c), k) ->
         let act, preds =
-          single_train_test_regr verbose Discard e c train test in
+          bagged_train_test_regr 1 verbose rng Discard e c k train test in
         let r2 = Cpm.RegrStats.r2 act preds in
-        log_R2 e c r2;
-        (e, c, r2)
-      ) ecs in
-  best_r2 e_c_r2s
+        log_R2 e c k r2;
+        (e, c, k, r2)
+      ) ecks in
+  best_r2 e_c_k_r2s
 
 (* like optimize_regr, but using NxCV *)
-let optimize_regr_nfolds ncores verbose nfolds es cs train =
+let optimize_regr_nfolds ncores verbose rng nfolds es cs ks train =
   let train_tests = Cpm.Utls.cv_folds nfolds train in
-  let ecs = L.cartesian_product es cs in
-  let e_c_r2s =
-    Parany.Parmap.parmap ncores (fun (e, c) ->
+  let ecks = L.(cartesian_product (cartesian_product es cs) ks) in
+  let e_c_k_r2s =
+    Parany.Parmap.parmap ncores (fun ((e, c), k) ->
         let all_act_preds =
           L.map (fun (train', test') ->
-              single_train_test_regr verbose Discard e c train' test'
+              bagged_train_test_regr 1 verbose rng Discard e c k train' test'
             ) train_tests in
         let acts, preds =
           let xs, ys = L.split all_act_preds in
           (L.concat xs, L.concat ys) in
         let r2 = Cpm.RegrStats.r2 acts preds in
-        log_R2 e c r2;
-        (e, c, r2)
-      ) ecs in
-  best_r2 e_c_r2s
+        log_R2 e c k r2;
+        (e, c, k, r2)
+      ) ecks in
+  best_r2 e_c_k_r2s
 
 let mol_of_lines lines =
   L.mapi liblinear_line_to_FpMol lines
@@ -751,8 +769,10 @@ let svr_epsilon_range (nsteps: int) (ys: float list): float list =
 let epsilon_range maybe_epsilon maybe_esteps maybe_es train =
   match (maybe_epsilon, maybe_esteps, maybe_es) with
   | (None, None, Some es) -> es
-  | (_, _, Some _) -> failwith "Linwrap.epsilon_range: (e or esteps) and --e-range"
-  | (Some _, Some _, None) -> failwith "Linwrap.epsilon_range: both e and esteps"
+  | (_, _, Some _) ->
+    failwith "Linwrap.epsilon_range: (e or esteps) and --e-range"
+  | (Some _, Some _, None) ->
+    failwith "Linwrap.epsilon_range: both e and esteps"
   | (None, None, None) -> failwith "Linwrap.epsilon_range: no e and no esteps"
   | (Some e, None, None) -> [e]
   | (None, Some nsteps, None) ->
@@ -983,22 +1003,23 @@ let main () =
             let train, test = L.takedrop train_card all_lines in
             if do_regression then
               begin
-                let best_e, best_c, best_r2 =
+                let best_e, best_c, best_k, best_r2 =
                   let epsilons =
                     epsilon_range maybe_epsilon maybe_esteps maybe_es train in
                   if nfolds = 1 then
-                    optimize_regr verbose ncores epsilons cs train test
+                    optimize_regr verbose rng ncores epsilons cs ks train test
                   else
                     optimize_regr_nfolds
-                      ncores verbose nfolds epsilons cs all_lines in
+                      ncores verbose rng nfolds epsilons cs ks all_lines in
                 let actual, preds =
                   if nfolds = 1 then
-                    single_train_test_regr
-                      verbose model_cmd best_e best_c train test
+                    bagged_train_test_regr ncores verbose rng model_cmd
+                      best_e best_c best_k train test
                   else
                     let actual', preds', ad_points =
                       single_train_test_regr_nfolds
-                        verbose compute_AD nfolds ncores best_e best_c all_lines in
+                        verbose compute_AD nfolds ncores best_e best_c
+                        all_lines in
                     (if compute_AD then
                        dump_AD_points ad_points_fn ad_points
                     );
