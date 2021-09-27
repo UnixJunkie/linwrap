@@ -18,6 +18,9 @@ module Stats = Cpm.RegrStats
  *     ) lorenz_curve_points;
  *   !a_tot /. (!a_tot +. !b_tot) *)
 
+let protect_underscores title =
+  BatString.nreplace ~str:title ~sub:"_" ~by:"\\_"
+
 let regr_plot title actual preds =
   let x_min, x_max = L.min_max ~cmp:BatFloat.compare actual in
   let y_min, y_max = L.min_max ~cmp:BatFloat.compare preds in
@@ -39,7 +42,7 @@ let regr_plot title actual preds =
      sprintf "set yrange [%f:%f]" xy_min xy_max;
      "set key left";
      "set size square";
-     sprintf "set title '%s'" title;
+     sprintf "set title '%s'" (protect_underscores title);
      "g(x) = x";
      "f(x) = a*x + b";
      sprintf "fit f(x) '%s' u 1:2 via a, b" data_fn;
@@ -50,7 +53,7 @@ let regr_plot title actual preds =
     *          t 'n=%d r2=%.2f', \\" data_fn nb_trees r2; *)
   ignore(Sys.command (sprintf "gnuplot --persist %s" plot_fn))
 
-let lorenz_plot title_str curve =
+let lorenz_plot title curve =
   let gnuplot_script_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_lorenz_" ".gpl" in
   let curve_fn = Fn.temp_file ~temp_dir:"/tmp" "linwrap_lorenz_" ".txt" in
   Utls.with_out_file curve_fn (fun out ->
@@ -72,14 +75,15 @@ let lorenz_plot title_str curve =
          f(x) = x\n\
          plot '%s' u 1:2 w lines t 'Lorenz', \
               f(x) lc rgb 'black' not\n"
-        title_str curve_fn
+        (protect_underscores title)
+        curve_fn
     );
   let gnuplot_log = Fn.temp_file ~temp_dir:"/tmp" "gnuplot_" ".log" in
   Utls.run_command (sprintf "(gnuplot -persist %s 2>&1) > %s"
                       gnuplot_script_fn gnuplot_log)
 
 (* comes from RanKers Gnuplot module *)
-let roc_curve title_str
+let roc_curve title
     score_labels_fn roc_curve_fn nb_actives nb_decoys ef_curve_fn =
   (* Utls.run_command
    *   (sprintf "cat %s | time croc-curve 2>/dev/null > %s"
@@ -105,7 +109,7 @@ let roc_curve title_str
               ''   u 1:3 w lines t 'A_{%%}' , \
               ''   u 1:4 w lines t 'D_{%%}' , \
               f(x) lc rgb 'black' not, g(x) t 'p_a(m)'\n"
-        nb_actives nb_decoys title_str
+        nb_actives nb_decoys (protect_underscores title)
         score_labels_fn roc_curve_fn ef_curve_fn
     );
   let gnuplot_log = Fn.temp_file ~temp_dir:"/tmp" "gnuplot_" ".log" in
