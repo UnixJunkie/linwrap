@@ -957,8 +957,9 @@ let main () =
           let acts = read_IC50s_from_train_fn pairs input_fn in
           let preds = read_IC50s_from_preds_fn pairs output_fn in
           let r2 = Cpm.RegrStats.r2 acts preds in
+          let rmse = Cpm.RegrStats.rmse acts preds in
           let title_str =
-            sprintf "T=%s N=%d R2=%.3f" input_fn (L.length preds) r2 in
+            sprintf "T=%s N=%d R2=%.3f RMSE=%.3f" input_fn (L.length preds) r2 rmse in
           (if not no_gnuplot then
              Gnuplot.regr_plot title_str acts preds
           );
@@ -1026,13 +1027,14 @@ let main () =
                     (actual', preds') in
                 (* dump to a .act_pred file  *)
                 let act_preds = L.combine actual preds in
+                let rmse = Cpm.RegrStats.rmse actual preds in
                 Utls.list_to_file output_fn
                   (fun (act, pred) ->
                      sprintf "%f\t%f" act pred
                   ) act_preds;
                 let title_str =
-                  sprintf "T=%s nfolds=%d e=%g C=%g R2=%.3f"
-                    input_fn nfolds best_e best_c best_r2 in
+                  sprintf "T=%s nfolds=%d e=%g C=%g R2=%.3f RMSE=%.3f"
+                    input_fn nfolds best_e best_c best_r2 rmse in
                 Log.info "%s" title_str;
                 if not no_gnuplot then
                   Gnuplot.regr_plot title_str actual preds
