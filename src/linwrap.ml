@@ -114,7 +114,7 @@ let single_train_test verbose pairs cmd c w train test =
   Utls.run_command ~debug:verbose
     (* '-b 1' forces probabilist predictions instead of raw scores *)
     (sprintf "%s -b 1 %s %s %s %s"
-       liblin_predict quiet_command test_fn model_fn preds_fn);
+       liblin_predict test_fn model_fn preds_fn quiet_command);
   (* extract true labels *)
   let true_labels = L.map (is_active pairs) test in
   (* extact predicted scores *)
@@ -315,7 +315,7 @@ let prod_predict ncores verbose pairs model_fns test_fn output_fn =
          Utls.run_command ~debug:verbose
            (* '-b 1' forces probabilist predictions instead of raw scores *)
            (sprintf "%s -b 1 %s %s %s %s"
-              liblin_predict quiet_command tmp_csv_fn model_fn preds_fn);
+              liblin_predict tmp_csv_fn model_fn preds_fn quiet_command);
          (if pairs && not verbose then Sys.remove tmp_csv_fn);
          preds_fn)
       (fun acc preds_fn -> preds_fn :: acc)
