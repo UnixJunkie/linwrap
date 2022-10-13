@@ -718,10 +718,16 @@ let decode_w_range pairs maybe_train_fn input_fn maybe_range_str =
       L.frange 1.0 `To max_weight 10 (* default w range *)
     end
   | Some s ->
-    try Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
-        L.frange start `To stop nsteps)
-    with exn -> (Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
-                 raise exn)
+    if S.contains s ':' then
+      try Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
+          L.frange start `To stop nsteps)
+      with exn -> (Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
+                   raise exn)
+    else if S.contains s ',' then
+      L.map float_of_string (S.split_on_char ',' s)
+    else
+      (Log.fatal "Linwrap.decode_w_range: don't know how to split: %s" s;
+       exit 1)
 
 let decode_e_range maybe_range_str = match maybe_range_str with
   | None -> None
