@@ -929,6 +929,15 @@ let main () =
   let do_classification = not do_regression in
   let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
+  (match (scan_C, fixed_c, c_range_str) with
+   | (true, Some _c, _) ->
+     let () = Log.fatal "incompatible options: --scan-c and -c" in
+     exit 1
+   | (_, Some _c, Some _c_range_str) ->
+     let () = Log.fatal "incompatible options: -c and --c-range" in
+     exit 1
+   | (_, _, _) -> () (* ignore other cases *)
+  );
   let verbose = not quiet in
   (* scan C? *)
   let cs = match fixed_c with
