@@ -476,10 +476,10 @@ let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
   Log.info "threshold: %g %dxCV_MCC: %g" threshold nfolds mcc_max
 
-let perf_plot noplot score_labels c' w' k' auc bed =
+let perf_plot noplot nfolds score_labels c' w' k' auc bed =
   let title_str =
-    sprintf "C=%g w=%g k=%d AUC=%.3f BED=%.3f"
-      c' w' k' auc bed in
+    sprintf "nfolds=%d C=%g w=%g k=%d AUC=%.3f BED=%.3f"
+      nfolds c' w' k' auc bed in
   if not noplot then
     let tmp_scores_fn =
       Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
@@ -501,7 +501,7 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
     ROC.rank_order_by_score_a for_auc;
     let auc = ROC.fast_auc_a for_auc in
     let bed = ROC.fast_bedroc_auc_a for_auc in
-    perf_plot noplot for_auc c' w' k' auc bed;
+    perf_plot noplot nfolds for_auc c' w' k' auc bed;
     (c', w', k', auc)
   | _ ->
     Parany.Parmap.parfold ncores
@@ -514,7 +514,7 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
          ROC.rank_order_by_score_a for_auc;
          let auc = ROC.fast_auc_a for_auc in
          let bed = ROC.fast_bedroc_auc_a for_auc in
-         perf_plot noplot for_auc c' w' k' auc bed;
+         perf_plot noplot nfolds for_auc c' w' k' auc bed;
          (c', w', k', auc))
       (fun
         ((_c, _w, _k, prev_best_auc) as prev)
@@ -718,10 +718,16 @@ let decode_w_range pairs maybe_train_fn input_fn maybe_range_str =
       L.frange 1.0 `To max_weight 10 (* default w range *)
     end
   | Some s ->
-    try Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
-        L.frange start `To stop nsteps)
-    with exn -> (Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
-                 raise exn)
+    if S.contains s ':' then
+      try Scanf.sscanf s "%f:%d:%f" (fun start nsteps stop ->
+          L.frange start `To stop nsteps)
+      with exn -> (Log.fatal "Linwrap.decode_w_range: invalid string: %s"  s;
+                   raise exn)
+    else if S.contains s ',' then
+      L.map float_of_string (S.split_on_char ',' s)
+    else
+      (Log.fatal "Linwrap.decode_w_range: don't know how to split: %s" s;
+       exit 1)
 
 let decode_e_range maybe_range_str = match maybe_range_str with
   | None -> None
@@ -923,6 +929,15 @@ let main () =
   let do_classification = not do_regression in
   let no_gnuplot = CLI.get_set_bool ["--no-plot"] args in
   CLI.finalize (); (* ------------------------------------------------------ *)
+  (match (scan_C, fixed_c, c_range_str) with
+   | (true, Some _c, _) ->
+     let () = Log.fatal "incompatible options: --scan-c and -c" in
+     exit 1
+   | (_, Some _c, Some _c_range_str) ->
+     let () = Log.fatal "incompatible options: -c and --c-range" in
+     exit 1
+   | (_, _, _) -> () (* ignore other cases *)
+  );
   let verbose = not quiet in
   (* scan C? *)
   let cs = match fixed_c with
