@@ -2,5 +2,5 @@
 (executables
   (names        linwrap)
   (public_names linwrap)
-  (libraries batteries cpm dolog minicli parany dokeysto_camltc bst molenc)
+  (libraries batteries cpm dolog minicli parany dokeysto bst molenc)
   (modules utls linwrap gnuplot perf bstree))

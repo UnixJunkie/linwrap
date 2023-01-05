@@ -13,7 +13,8 @@ depends: [
   "bst"
   "conf-liblinear-tools"
   "cpm" {>= "11.0.0"}
-  "dokeysto_camltc"
+  "dokeysto" # possible perf. regr.: dokeysto_camltc -> dokeysto
+  "ocaml" {>= "5.0.0"} # because camltc not yet ready for ocaml>=5.0.0
   "dolog" {>= "6.0.0"}
   "dune" {>= "1.10"}
   "minicli" {>= "5.0.0"}
