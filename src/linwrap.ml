@@ -476,10 +476,10 @@ let mcc_scan ncores verbose cmd rng c w k nfolds dataset =
   let threshold, mcc_max = mcc_scan_proper ncores score_labels in
   Log.info "threshold: %g %dxCV_MCC: %g" threshold nfolds mcc_max
 
-let perf_plot noplot nfolds score_labels c' w' k' auc bed =
+let perf_plot noplot nfolds score_labels c' w' k' roc_auc pr_auc =
   let title_str =
-    sprintf "nfolds=%d C=%g w=%g k=%d AUC=%.3f BED=%.3f"
-      nfolds c' w' k' auc bed in
+    sprintf "nfolds=%d C=%g w=%g k=%d ROC=%.3f PR=%.3f"
+      nfolds c' w' k' roc_auc pr_auc in
   if not noplot then
     let tmp_scores_fn =
       Fn.temp_file ~temp_dir:"/tmp" "linwrap_optimize_" ".txt" in
@@ -487,9 +487,13 @@ let perf_plot noplot nfolds score_labels c' w' k' auc bed =
       None None tmp_scores_fn title_str score_labels;
     Sys.remove tmp_scores_fn
 
+(* what is the optimization target *)
+type optim_target = ROC_AUC (* default *)
+                  | PR_AUC
+
 (* return the best parameter configuration found in the parameter
-   configs list [cwks]: (best_c, best_w, best_k, best_auc) *)
-let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
+   configs list [cwks]: (best_c, best_w, best_k, roc_auc, pr_auc) *)
+let optimize target ncores verbose noplot nfolds model_cmd rng train test cwks =
   match cwks with
   | [] -> assert(false) (* there should be at least one configuration *)
   | [((c', w'), k')] ->
@@ -499,10 +503,10 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
           ncores nfolds verbose model_cmd rng c' w' k' train test in
       A.of_list score_labels in
     ROC.rank_order_by_score_a for_auc;
-    let auc = ROC.fast_auc_a for_auc in
-    let bed = ROC.fast_bedroc_auc_a for_auc in
-    perf_plot noplot nfolds for_auc c' w' k' auc bed;
-    (c', w', k', auc)
+    let roc_auc = ROC.fast_auc_a for_auc in
+    let pr_auc = ROC.pr_auc (A.to_list for_auc) in
+    perf_plot noplot nfolds for_auc c' w' k' roc_auc pr_auc;
+    (c', w', k', roc_auc, pr_auc)
   | _ ->
     Parany.Parmap.parfold ncores
       (fun ((c', w'), k') ->
@@ -512,20 +516,33 @@ let optimize ncores verbose noplot nfolds model_cmd rng train test cwks =
                1 nfolds verbose model_cmd rng c' w' k' train test in
            A.of_list score_labels in
          ROC.rank_order_by_score_a for_auc;
-         let auc = ROC.fast_auc_a for_auc in
-         let bed = ROC.fast_bedroc_auc_a for_auc in
-         perf_plot noplot nfolds for_auc c' w' k' auc bed;
-         (c', w', k', auc))
+         let roc_auc = ROC.fast_auc_a for_auc in
+         let pr_auc = ROC.pr_auc (A.to_list for_auc) in
+         perf_plot noplot nfolds for_auc c' w' k' roc_auc pr_auc;
+         (c', w', k', roc_auc, pr_auc))
       (fun
-        ((_c, _w, _k, prev_best_auc) as prev)
-        ((c', w', k', curr_auc) as curr) ->
-        if curr_auc > prev_best_auc then
-          (Log.info "c: %g w1: %g k: %d AUC: %.3f" c' w' k' curr_auc;
-           curr)
-        else
-          (Log.warn "c: %g w1: %g k: %d AUC: %.3f" c' w' k' curr_auc;
-           prev)
-      ) (-1.0, -1.0, -1, 0.5) cwks
+        ((_c, _w, _k, prev_roc, prev_pr) as prev)
+        ((c', w', k', curr_roc, curr_pr) as curr) ->
+        match target with
+        | ROC_AUC ->
+          let log, res =
+            if curr_roc > prev_roc then
+              (Log.info, curr)
+            else
+              (Log.warn, prev) in
+          log "c: %g w1: %g k: %d ROC: %.3f PR: %.3f"
+            c' w' k' curr_roc curr_pr;
+          res
+        | PR_AUC ->
+          let log, res =
+            if curr_pr > prev_pr then
+              (Log.info, curr)
+            else
+              (Log.warn, prev) in
+          log "c: %g w1: %g k: %d ROC: %.3f PR: %.3f"
+            c' w' k' curr_roc curr_pr;
+          res
+      ) (-1.0, -1.0, -1, 0.5, 0.0) cwks
 
 (* find best (e, C) configuration by R2 maximization *)
 let best_r2 l =
@@ -843,6 +860,7 @@ let main () =
               [-q]: quiet liblinear\n  \
               [--seed <int>]: fix random seed\n  \
               [-p <float>]: training set portion (in [0.0:1.0])\n  \
+              [-pr]: optimize PR_AUC (default=ROC_AUC)\n  \
               [--pairs]: read from .AP files (atom pairs; \
               will offset feat. indexes by 1)\n  \
               [--train <train.liblin>]: training set (overrides -p)\n  \
@@ -882,6 +900,11 @@ let main () =
   let pairs = CLI.get_set_bool ["--pairs"] args in
   let ad_points_fn = CLI.get_string_def ["--dump-AD"] args "/dev/null" in
   let compute_AD = ad_points_fn <> "/dev/null" in
+  let target =
+    if CLI.get_set_bool ["-pr"] args then
+      PR_AUC
+    else
+      ROC_AUC in
   Utls.enforce (not (will_save && will_load))
     ("Linwrap.main: cannot load and save at the same time");
   let model_cmd =
@@ -1055,26 +1078,27 @@ let main () =
                   Gnuplot.regr_plot title_str actual preds
               end
             else (* classification *)
-              let best_c, best_w, best_k, best_auc =
-                optimize ncores verbose no_gnuplot nfolds
+              let best_c, best_w, best_k, best_roc, best_pr =
+                optimize target ncores verbose no_gnuplot nfolds
                   model_cmd rng train test cwks in
-              Log.info "T=%s nfolds=%d C=%.3f w=%.3f k=%d AUC=%.3f"
-                input_fn nfolds best_c best_w best_k best_auc
+              Log.info "T=%s nfolds=%d C=%.3f w=%.3f k=%d ROC=%.3f PR=%.3f"
+                input_fn nfolds best_c best_w best_k best_roc best_pr
         end
       | (Some train_fn, Some valid_fn, Some test_fn) ->
         begin
           let train =
             lines_of_file
               pairs do_classification instance_wise_norm train_fn in
-          let best_c, best_w, best_k, best_valid_AUC =
+          let best_c, best_w, best_k, best_val_roc, best_val_pr =
             let valid =
               lines_of_file
                 pairs do_classification instance_wise_norm valid_fn in
-            optimize ncores verbose no_gnuplot nfolds
+            optimize target ncores verbose no_gnuplot nfolds
               model_cmd rng train valid cwks in
           Log.info "best (c, w, k) config: %g %g %d" best_c best_w best_k;
-          Log.info "valAUC: %.3f" best_valid_AUC;
-          let test_AUC =
+          Log.info "valROC: %.3f" best_val_roc;
+          Log.info "valPR: %.3f" best_val_pr;
+          let test_roc, test_pr =
             let test =
               lines_of_file
                 pairs do_classification instance_wise_norm test_fn in
@@ -1083,8 +1107,9 @@ let main () =
               train_test
                 one_cpu verbose false model_cmd rng best_c best_w best_k
                 train test in
-            ROC.auc score_labels in
-          Log.info "tesAUC: %.3f" test_AUC
+            (ROC.auc score_labels, ROC.pr_auc score_labels) in
+          Log.info "tesROC: %.3f" test_roc;
+          Log.info "tesPR: %.3f" test_pr
         end
       | _ ->
         failwith "Linwrap: --train, --valid and --test: \
