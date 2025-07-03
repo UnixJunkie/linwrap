@@ -40,8 +40,12 @@ let liblin_train, liblin_predict =
     (* unspecific names chosen by brew liblinear packagers... *)
     ("train", "predict")
   else
-    (* better names on Linux *)
-    ("liblinear-train", "liblinear-predict")
+    (* better names on Linux:
+     * liblinear-tools system package-installed executables:
+     * ("liblinear-train", "liblinear-predict") *)
+    (* executables installed by the opam package liblinear
+       under opam's bin/ directory *)
+    ("liblinear_train", "liblinear_predict")
 
 let pred_score_of_pred_line l =
   try Scanf.sscanf l "%d %f %f" (fun _label act_p _dec_p -> act_p)
