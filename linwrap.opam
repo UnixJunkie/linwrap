@@ -11,7 +11,7 @@ depends: [
   "base-unix"
   "batteries" {>= "3.3.0"}
   "bst"
-  "conf-liblinear-tools"
+  "liblinear" {>= "2.47"}
   "cpm" {>= "11.0.0"}
   "dokeysto" # possible perf. regr.: dokeysto_camltc -> dokeysto
   "ocaml" {>= "5.0.0"} # because camltc not yet ready for ocaml>=5.0.0
@@ -22,7 +22,7 @@ depends: [
   "parany" {>= "11.0.0"}
 ]
 # the software can compile and install without the depopts.
-# however, some tools and options will not work anymore at run-time  
+# however, some tools and options will not work anymore at run-time
 depopts: [
   "conf-gnuplot"
   "conf-python-3"
@@ -74,9 +74,9 @@ usage: linwrap
   (semantic=start:nsteps:stop)
   [--e-range <float>:<int>:<float>]: specific range for e
   (semantic=start:nsteps:stop)
-  [--c-range <float,float,...>] explicit scan range for C 
+  [--c-range <float,float,...>] explicit scan range for C
   (example='0.01,0.02,0.03')
-  [--k-range <int,int,...>] explicit scan range for k 
+  [--k-range <int,int,...>] explicit scan range for k
   (example='1,2,3,5,10')
   [--scan-k]: scan number of bags (advice: optim. k rather than w)
 """
