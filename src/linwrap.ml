@@ -926,7 +926,18 @@ let main () =
         end
     end in
   let ncores = CLI.get_int_def ["-np"] args 1 in
-  let train_p = CLI.get_float_def ["-p"] args 0.8 in
+  let train_p =
+    if will_save then
+      let () = Log.info "--save implies train_p=1.0" in
+      1.0
+    else
+      begin
+        if will_load then
+          let () = Log.info "--load implies train_p=0.0" in
+          0.0
+        else
+          CLI.get_float_def ["-p"] args 0.8
+      end in
   assert(train_p >= 0.0 && train_p <= 1.0);
   let nfolds = CLI.get_int_def ["-n";"--NxCV"] args 1 in
   let rng = match CLI.get_int_opt ["--seed"] args with
